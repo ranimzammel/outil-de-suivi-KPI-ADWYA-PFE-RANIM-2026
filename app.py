@@ -1,4 +1,3 @@
-# =============================================================================
 # TABLEAU DE BORD — CENTRALE TRIGÉNÉRATION ADWYA
 # Outil de suivi des performances énergétiques
 # Projet de Fin d'Études (PFE) 2026
@@ -102,6 +101,9 @@ h1, h2, h3, h4 {
     margin: 18px 0 8px;
     border-bottom: 1px solid #1b3352; padding-bottom: 4px;
 }
+.zone-alpha { border-left: 4px solid #00b4d8; padding-left: 12px; }
+.zone-beta  { border-left: 4px solid #f7971e; padding-left: 12px; }
+.zone-gamma { border-left: 4px solid #a0e878; padding-left: 12px; }
 .stTabs [data-baseweb="tab-list"] {
     gap: 6px; background: #0b1422; padding: 8px;
     border-radius: 10px; margin-bottom: 4px;
@@ -190,7 +192,6 @@ DATA_DEFAUT = [
     ("Mai  2025",  731,  812_044,  199_061,  217_045,  488_017,  0.607),
 ]
 
-# Causes opérationnelles connues (pour alertes et rapport)
 CAUSES_COP = {
     "Jan  2025": (
         "Panne confirmée de la machine à absorption (janvier 2025) : "
@@ -225,18 +226,15 @@ else:
 
 df_raw["cause_cop"] = df_raw["mois"].map(CAUSES_COP).fillna("")
 
-# Conversions numériques sécurisées
 for col in ["prod_nette", "gaz", "froid", "chaleur", "h_service"]:
     df_raw[col] = pd.to_numeric(df_raw[col], errors="coerce").fillna(0)
-df_raw["COP"] = pd.to_numeric(df_raw["COP"], errors="coerce")   # garde NaN volontairement
+df_raw["COP"] = pd.to_numeric(df_raw["COP"], errors="coerce")
 
 # =============================================================================
 # 5. CALCULS KPI
 # =============================================================================
-# Puissance calorifique gaz (kWh_PCI)
 df_raw["P_gaz"] = df_raw["gaz"] * PCI
 
-# Rendements (protection contre division par zéro)
 safe = df_raw["P_gaz"].replace(0, np.nan)
 df_raw["eta_e"]    = df_raw["prod_nette"] / safe
 df_raw["eta_th"]   = df_raw["chaleur"]    / safe
@@ -245,7 +243,6 @@ df_raw["eta_glob"] = df_raw["eta_e"] + df_raw["eta_th"] + df_raw["eta_frig"]
 for col in ["eta_e","eta_th","eta_frig","eta_glob"]:
     df_raw[col] = df_raw[col].fillna(0)
 
-# Pertes
 df_raw["pertes_reseau"] = df_raw["P_gaz"] * taux_pertes
 df_raw["pertes_sys"] = (
     df_raw["P_gaz"] - df_raw["prod_nette"]
@@ -253,20 +250,15 @@ df_raw["pertes_sys"] = (
     - df_raw["pertes_reseau"]
 ).clip(lower=0)
 
-# Économies financières
 df_raw["cout_gaz_dt"]    = df_raw["gaz"] * prix_gaz_nm3
 df_raw["val_elec_dt"]    = df_raw["prod_nette"] * prix_kwh_steg
-# Valeur chaleur = équivalent gaz économisé sur chaudière (η_chaud = 90%)
 df_raw["val_chaleur_dt"] = df_raw["chaleur"] / (0.90 * PCI) * prix_gaz_nm3
-# Valeur froid = équivalent élec économisé sur GEG (COP_GEG = 3.1)
 df_raw["val_froid_dt"]   = df_raw["froid"] / 3.1 * prix_kwh_steg
-# Gain global net = valeurs produites − coût gaz
 df_raw["gain_global_dt"] = (
     df_raw["val_elec_dt"] + df_raw["val_chaleur_dt"]
     + df_raw["val_froid_dt"] - df_raw["cout_gaz_dt"]
 )
 
-# Efficacité horaire
 safe_h = df_raw["h_service"].replace(0, np.nan)
 df_raw["elec_h"]    = (df_raw["prod_nette"] / safe_h).fillna(0)
 df_raw["chaleur_h"] = (df_raw["chaleur"]    / safe_h).fillna(0)
@@ -324,7 +316,6 @@ def detecter_alertes(dataframe: pd.DataFrame) -> pd.DataFrame:
         mois = r["mois"]
         cause_cop = r.get("cause_cop", "")
 
-        # η_e
         if r["eta_e"] > 0 and r["eta_e"] < seuil_eta_e:
             rows.append({
                 "Mois": mois, "KPI": "η_e",
@@ -336,7 +327,6 @@ def detecter_alertes(dataframe: pd.DataFrame) -> pd.DataFrame:
                 "Action": "Diagnostic moteur : bougies allumage, filtres air, qualité gaz, refroidissement."
             })
 
-        # η_th
         if r["eta_th"] > 0 and r["eta_th"] < seuil_eta_th:
             niv = "🔴 ALERTE" if r["eta_th"] < 0.15 else "🟡 SURVEILLANCE"
             rows.append({
@@ -349,7 +339,6 @@ def detecter_alertes(dataframe: pd.DataFrame) -> pd.DataFrame:
                 "Action": "Inspecter échangeurs (encrassement), vérifier débits et V3V."
             })
 
-        # COP
         cop = r["COP"]
         if pd.isna(cop) or cop == 0:
             rows.append({
@@ -371,7 +360,6 @@ def detecter_alertes(dataframe: pd.DataFrame) -> pd.DataFrame:
                 "Action": "Nettoyage condenseur, analyse LiBr, contrôle T° eau de tour."
             })
 
-        # η_global
         if r["eta_glob"] > 0 and r["eta_glob"] < seuil_eta_glob:
             rows.append({
                 "Mois": mois, "KPI": "η_global",
@@ -407,13 +395,68 @@ def perf_tag(val, seuil, nom):
     else:              return '<span class="tag-alert">&#10006; CRITIQUE</span>'
 
 # =============================================================================
-# 10. ONGLETS
+# 10. DONNÉES PAR ZONE (Audit ADWYA 2025 — Tableaux 43 & 44)
 # =============================================================================
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+ZONE_DATA_ANNUEL = {
+    "elec": {
+        "CTA":          {"Alpha": 537_093,  "Béta": 223_581,  "Gamma": 182_777},
+        "GEG (froid)":  {"Alpha": 755_955,  "Béta": 371_177,  "Gamma": 279_603},
+        "Pompes EG":    {"Alpha": 105_558,  "Béta":  96_737,  "Gamma":  99_566},
+        "Chaufferies":  {"Alpha":  55_600,  "Béta": 104_244,  "Gamma": 126_065},
+        "Production":   {"Alpha": 428_597,  "Béta": 313_246,  "Gamma": 276_314},
+    },
+    "elec_objectif": {
+        "CTA":          {"Alpha": 442_569,  "Béta": 184_351,  "Gamma": 150_729},
+        "GEG (froid)":  {"Alpha": 623_162,  "Béta": 306_120,  "Gamma": 230_481},
+        "Pompes EG":    {"Alpha":  87_080,  "Béta":  79_764,  "Gamma":  82_082},
+        "Chaufferies":  {"Alpha":  45_867,  "Béta":  85_985,  "Gamma": 103_938},
+        "Production":   {"Alpha": 353_549,  "Béta": 258_277,  "Gamma": 227_874},
+    },
+    "gaz_nm3": {
+        "Chaudière vapeur":  {"Alpha":  81_325,  "Béta":       0,  "Gamma": 126_014},
+        "Chaudière EC":      {"Alpha":      0,   "Béta": 277_860,  "Gamma":       0},
+        "Munters":           {"Alpha":      0,   "Béta":  50_000,  "Gamma":       0},
+    },
+    "gaz_nm3_objectif": {
+        "Chaudière vapeur":  {"Alpha":  49_445,  "Béta":       0,  "Gamma":  76_613},
+        "Chaudière EC":      {"Alpha":      0,   "Béta": 168_954,  "Gamma":       0},
+        "Munters":           {"Alpha":      0,   "Béta":  30_380,  "Gamma":       0},
+    },
+}
+
+ZONES         = ["Alpha", "Béta", "Gamma"]
+COULEURS_ZONE = {"Alpha": "#00b4d8", "Béta": "#f7971e", "Gamma": "#a0e878"}
+COULEURS_USAGE = {
+    "CTA":              "#0077b6",
+    "GEG (froid)":      "#a0e878",
+    "Pompes EG":        "#48cae4",
+    "Chaufferies":      "#f7971e",
+    "Production":       "#9b72cf",
+    "Chaudière vapeur": "#e63946",
+    "Chaudière EC":     "#ffd200",
+    "Munters":          "#ff9f1c",
+}
+
+# Pré-calculs zone (utilisés dans tab5 et tab6)
+totaux_elec     = {z: sum(ZONE_DATA_ANNUEL["elec"][u][z]     for u in ZONE_DATA_ANNUEL["elec"])     for z in ZONES}
+totaux_elec_obj = {z: sum(ZONE_DATA_ANNUEL["elec_objectif"][u][z] for u in ZONE_DATA_ANNUEL["elec_objectif"]) for z in ZONES}
+totaux_gaz      = {z: sum(ZONE_DATA_ANNUEL["gaz_nm3"][u][z]  for u in ZONE_DATA_ANNUEL["gaz_nm3"])  for z in ZONES}
+totaux_gaz_obj  = {z: sum(ZONE_DATA_ANNUEL["gaz_nm3_objectif"][u][z] for u in ZONE_DATA_ANNUEL["gaz_nm3_objectif"]) for z in ZONES}
+total_usine_elec = sum(totaux_elec.values())
+total_usine_gaz  = sum(totaux_gaz.values())
+
+PROD_ZONE = {"Alpha": 0.40, "Béta": 0.35, "Gamma": 0.25}
+prod_ref  = 16_411_490
+
+# =============================================================================
+# 11. ONGLETS  (tab5 = Énergie par Zone | tab6 = Rapport & Export)
+# =============================================================================
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊  KPI & Rendements",
     "🔀  Flux Énergétique",
     "🚨  Alertes",
     "💰  Analyse Économique",
+    "🏭  Énergie par Zone",
     "📋  Rapport & Export",
 ])
 
@@ -422,7 +465,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # ─────────────────────────────────────────────────────────────────────────────
 with tab1:
 
-    # KPI CARDS
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: st.markdown(kpi_html("η GLOBAL",    f"{eta_glob_moy*100:.1f}", "%",
                                   seuil_eta_glob, eta_glob_nom, eta_glob_moy), unsafe_allow_html=True)
@@ -442,7 +484,6 @@ with tab1:
           <div class="kpi-delta delta-neu">sur {nb_mois} mois</div>
         </div>""", unsafe_allow_html=True)
 
-    # COURBE η_global
     st.markdown('<div class="sec-hdr">Évolution du rendement global</div>', unsafe_allow_html=True)
     mc = ["#e63946" if v < seuil_eta_glob else ("#ffd200" if v < eta_glob_nom else "#2dc653")
           for v in df["eta_glob"]]
@@ -465,7 +506,6 @@ with tab1:
                      height=320, margin=dict(l=50,r=110,t=20,b=40), showlegend=False)
     st.plotly_chart(fg, use_container_width=True)
 
-    # RENDEMENTS PARTIELS + COP
     st.markdown('<div class="sec-hdr">Rendements partiels & COP mensuel</div>', unsafe_allow_html=True)
     ca, cb = st.columns(2)
     with ca:
@@ -505,7 +545,6 @@ with tab1:
         f3.add_hline(y=seuil_cop, line_dash="dot", line_color="#e63946",
                      annotation_text=f"Seuil {seuil_cop:.2f}",
                      annotation_font_color="#e63946", annotation_position="right")
-        # Annotation arrêt janvier
         for i, row in df.iterrows():
             if (pd.isna(row["COP"]) or row["COP"] == 0) and row["cause_cop"]:
                 f3.add_annotation(x=row["mois"], y=0.05, text="ARRET",
@@ -516,7 +555,6 @@ with tab1:
                          height=300, margin=dict(l=50,r=80,t=40,b=40), showlegend=False)
         st.plotly_chart(f3, use_container_width=True)
 
-    # RADAR dernier mois
     st.markdown('<div class="sec-hdr">Profil du dernier mois vs nominal</div>', unsafe_allow_html=True)
     last = df.iloc[-1]
     cop_l = float(last["COP"]) if pd.notna(last["COP"]) else 0.0
@@ -541,7 +579,6 @@ with tab1:
     )
     st.plotly_chart(fr, use_container_width=True)
 
-    # TABLEAU SYNTHÈSE
     st.markdown('<div class="sec-hdr">Tableau de synthèse mensuel</div>', unsafe_allow_html=True)
     td = df[["mois","h_service","gaz","prod_nette","chaleur","froid",
              "COP","eta_e","eta_th","eta_frig","eta_glob","cause_cop"]].copy()
@@ -567,7 +604,6 @@ with tab2:
     vlr = vg * taux_pertes
     vls = max(0, vg - ve - vth - vfr - vlr)
 
-    # Sankey : 0=Gaz 1=Moteur 2=Élec 3=Chaleur 4=Froid 5=Pertes_réseau 6=Pertes_sys
     fsk = go.Figure(go.Sankey(
         arrangement="snap",
         node=dict(
@@ -718,7 +754,6 @@ with tab4:
       Gain net = somme des valeurs − coût du gaz consommé (hors O&amp;M et amortissement).
     </div>""", unsafe_allow_html=True)
 
-    # Graphique mensuel
     st.markdown('<div class="sec-hdr">Évolution mensuelle des flux financiers</div>', unsafe_allow_html=True)
     fe = go.Figure()
     fe.add_trace(go.Bar(x=df["mois"],y=df["cout_gaz_dt"],
@@ -737,7 +772,6 @@ with tab4:
                      legend=dict(bgcolor="#0b1929",font_size=12))
     st.plotly_chart(fe, use_container_width=True)
 
-    # Heatmap KPI
     st.markdown('<div class="sec-hdr">Carte thermique des indicateurs de performance</div>',
                 unsafe_allow_html=True)
     hd = df[["mois","eta_e","eta_th","eta_frig","eta_glob","COP"]].set_index("mois")
@@ -749,7 +783,6 @@ with tab4:
                      height=280, margin=dict(l=80,r=20,t=20,b=40))
     st.plotly_chart(fh, use_container_width=True)
 
-    # Efficacité horaire
     st.markdown('<div class="sec-hdr">Production horaire (kWh/h de service)</div>',
                 unsafe_allow_html=True)
     fhr = go.Figure()
@@ -770,9 +803,432 @@ with tab4:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TAB 5 — RAPPORT TECHNIQUE & EXPORT
+# TAB 5 — ÉNERGIE PAR ZONE
 # ─────────────────────────────────────────────────────────────────────────────
 with tab5:
+
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#0d1b2e 0%,#132438 100%);
+                border:1px solid #1b3352;border-radius:10px;
+                padding:18px 24px;margin-bottom:20px;">
+      <div style="font-size:16px;font-weight:700;color:#90c2e7;
+                  text-transform:uppercase;letter-spacing:2px;">
+        &#127981; Consommation énergétique par zone de production
+      </div>
+      <div style="font-size:12px;color:#4d7fa8;margin-top:6px;">
+        Source : Rapport d'audit énergétique ADWYA 2025 — Tableau 43 &amp; 44
+        &nbsp;&middot;&nbsp; Référence année 2024
+        &nbsp;&middot;&nbsp; Objectifs issus du plan d'actions (&#8722;17,6% élec / &#8722;39,2% GN)
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_sel1, col_sel2 = st.columns([3, 1])
+    with col_sel1:
+        zones_choisies = st.multiselect(
+            "Zones à afficher", ZONES, default=ZONES, key="zone_select"
+        )
+    with col_sel2:
+        vue_mode = st.radio(
+            "Vue", ["Annuelle (réf. 2024)", "Mensuelle (estimée)"], key="vue_mode"
+        )
+
+    if not zones_choisies:
+        st.warning("Sélectionnez au moins une zone.")
+        st.stop()
+
+    # ── A. ÉLECTRICITÉ ──────────────────────────────────────────────────────
+    st.markdown('<div class="sec-hdr">A — Électricité (kWh)</div>', unsafe_allow_html=True)
+
+    cols_kpi = st.columns(len(zones_choisies))
+    for i, z in enumerate(zones_choisies):
+        pct     = totaux_elec[z] / total_usine_elec * 100
+        gain    = totaux_elec[z] - totaux_elec_obj[z]
+        gain_pct = gain / totaux_elec[z] * 100
+        cols_kpi[i].markdown(f"""
+        <div class="kpi-card">
+          <div style="height:3px;background:{COULEURS_ZONE[z]};
+                      margin:-16px -18px 12px;border-radius:8px 8px 0 0;"></div>
+          <div class="kpi-label">Zone {z}</div>
+          <div class="kpi-value">{totaux_elec[z]/1000:.0f}
+            <span class="kpi-unit">MWh/an</span></div>
+          <div class="kpi-delta delta-neu">{pct:.1f}% de l'usine</div>
+          <div class="kpi-delta delta-pos">
+            Objectif : {totaux_elec_obj[z]/1000:.0f} MWh/an
+            &nbsp;(&#8722;{gain_pct:.1f}%)
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Réel 2024 vs Objectif par zone</div>',
+                unsafe_allow_html=True)
+    fig_zones_bar = go.Figure()
+    fig_zones_bar.add_trace(go.Bar(
+        name="Réel 2024",
+        x=zones_choisies,
+        y=[totaux_elec[z] / 1000 for z in zones_choisies],
+        marker_color=[COULEURS_ZONE[z] for z in zones_choisies],
+        text=[f"{totaux_elec[z]/1000:.0f} MWh" for z in zones_choisies],
+        textposition="outside", opacity=0.9,
+    ))
+    fig_zones_bar.add_trace(go.Bar(
+        name="Objectif (&#8722;17,6%)",
+        x=zones_choisies,
+        y=[totaux_elec_obj[z] / 1000 for z in zones_choisies],
+        marker_color=[COULEURS_ZONE[z] for z in zones_choisies],
+        text=[f"{totaux_elec_obj[z]/1000:.0f} MWh" for z in zones_choisies],
+        textposition="outside", opacity=0.4, marker_pattern_shape="x",
+    ))
+    fig_zones_bar.update_layout(
+        barmode="group", template="plotly_dark",
+        paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="Consommation (MWh/an)", height=320,
+        margin=dict(l=50,r=20,t=20,b=40),
+        legend=dict(bgcolor="#0b1929", font_size=12),
+    )
+    st.plotly_chart(fig_zones_bar, use_container_width=True)
+
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Décomposition par usage</div>',
+                unsafe_allow_html=True)
+    fig_usage = go.Figure()
+    for usage, data_zone in ZONE_DATA_ANNUEL["elec"].items():
+        fig_usage.add_trace(go.Bar(
+            name=usage,
+            x=zones_choisies,
+            y=[data_zone[z] / 1000 for z in zones_choisies],
+            marker_color=COULEURS_USAGE.get(usage, "#778da9"),
+            hovertemplate=f"<b>{usage}</b><br>Zone %{{x}}<br>%{{y:.1f}} MWh/an<extra></extra>",
+        ))
+    fig_usage.update_layout(
+        barmode="stack", template="plotly_dark",
+        paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="Consommation (MWh/an)", height=340,
+        margin=dict(l=50,r=20,t=20,b=40),
+        legend=dict(bgcolor="#0b1929", font_size=11),
+    )
+    st.plotly_chart(fig_usage, use_container_width=True)
+
+    cc1, cc2 = st.columns(2)
+    with cc1:
+        st.markdown('<div class="sec-hdr" style="font-size:14px;">Répartition usine par zone</div>',
+                    unsafe_allow_html=True)
+        fig_pie_zone = px.pie(
+            names=zones_choisies,
+            values=[totaux_elec[z] for z in zones_choisies],
+            color_discrete_sequence=[COULEURS_ZONE[z] for z in zones_choisies],
+            hole=0.50,
+        )
+        fig_pie_zone.update_traces(textposition="outside", textinfo="label+percent",
+                                   hovertemplate="<b>Zone %{label}</b><br>%{value:,.0f} kWh<extra></extra>")
+        fig_pie_zone.update_layout(template="plotly_dark", paper_bgcolor="#070e1a",
+                                   height=280, margin=dict(l=20,r=20,t=20,b=20), showlegend=False)
+        st.plotly_chart(fig_pie_zone, use_container_width=True)
+
+    with cc2:
+        st.markdown('<div class="sec-hdr" style="font-size:14px;">Répartition usine par usage</div>',
+                    unsafe_allow_html=True)
+        total_par_usage = {u: sum(ZONE_DATA_ANNUEL["elec"][u][z] for z in zones_choisies)
+                           for u in ZONE_DATA_ANNUEL["elec"]}
+        fig_pie_usage = px.pie(
+            names=list(total_par_usage.keys()),
+            values=list(total_par_usage.values()),
+            color_discrete_sequence=[COULEURS_USAGE.get(u, "#778da9") for u in total_par_usage],
+            hole=0.50,
+        )
+        fig_pie_usage.update_traces(textposition="outside", textinfo="label+percent",
+                                    hovertemplate="<b>%{label}</b><br>%{value:,.0f} kWh<extra></extra>")
+        fig_pie_usage.update_layout(template="plotly_dark", paper_bgcolor="#070e1a",
+                                    height=280, margin=dict(l=20,r=20,t=20,b=20), showlegend=False)
+        st.plotly_chart(fig_pie_usage, use_container_width=True)
+
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Tableau récapitulatif électricité</div>',
+                unsafe_allow_html=True)
+    rows_elec = []
+    for usage in ZONE_DATA_ANNUEL["elec"]:
+        row = {"Usage": usage}
+        for z in ZONES:
+            row[f"{z} — Réel (MWh)"]     = round(ZONE_DATA_ANNUEL["elec"][usage][z] / 1000, 1)
+            row[f"{z} — Objectif (MWh)"]  = round(ZONE_DATA_ANNUEL["elec_objectif"][usage][z] / 1000, 1)
+            row[f"{z} — Gain (%)"]        = f"-{(ZONE_DATA_ANNUEL['elec'][usage][z] - ZONE_DATA_ANNUEL['elec_objectif'][usage][z]) / max(ZONE_DATA_ANNUEL['elec'][usage][z], 1) * 100:.1f}%"
+        rows_elec.append(row)
+    row_tot = {"Usage": "TOTAL ZONE"}
+    for z in ZONES:
+        row_tot[f"{z} — Réel (MWh)"]     = round(totaux_elec[z] / 1000, 1)
+        row_tot[f"{z} — Objectif (MWh)"]  = round(totaux_elec_obj[z] / 1000, 1)
+        row_tot[f"{z} — Gain (%)"]        = f"-{(totaux_elec[z] - totaux_elec_obj[z]) / max(totaux_elec[z], 1) * 100:.1f}%"
+    rows_elec.append(row_tot)
+    st.dataframe(pd.DataFrame(rows_elec), use_container_width=True, hide_index=True)
+
+    # ── B. GAZ NATUREL ──────────────────────────────────────────────────────
+    st.markdown('<div class="sec-hdr">B — Gaz naturel (Nm³)</div>', unsafe_allow_html=True)
+
+    cols_gaz = st.columns(len(zones_choisies))
+    for i, z in enumerate(zones_choisies):
+        pct_g = totaux_gaz[z] / max(total_usine_gaz, 1) * 100
+        gain_g = totaux_gaz[z] - totaux_gaz_obj[z]
+        gain_g_pct = gain_g / max(totaux_gaz[z], 1) * 100
+        cols_gaz[i].markdown(f"""
+        <div class="kpi-card warn">
+          <div style="height:3px;background:{COULEURS_ZONE[z]};
+                      margin:-16px -18px 12px;border-radius:8px 8px 0 0;"></div>
+          <div class="kpi-label">Zone {z} — Gaz</div>
+          <div class="kpi-value">{totaux_gaz[z]/1000:.1f}
+            <span class="kpi-unit">kNm³/an</span></div>
+          <div class="kpi-delta delta-neu">{pct_g:.1f}% des chaudières usine</div>
+          <div class="kpi-delta delta-pos">
+            Objectif : {totaux_gaz_obj[z]/1000:.1f} kNm³/an
+            &nbsp;(&#8722;{gain_g_pct:.1f}%)
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    gg1, gg2 = st.columns(2)
+    with gg1:
+        fig_gaz_bar = go.Figure()
+        for usage, dz in ZONE_DATA_ANNUEL["gaz_nm3"].items():
+            vals = [dz[z] / 1000 for z in zones_choisies]
+            if any(v > 0 for v in vals):
+                fig_gaz_bar.add_trace(go.Bar(
+                    name=usage, x=zones_choisies, y=vals,
+                    marker_color=COULEURS_USAGE.get(usage, "#778da9"),
+                    hovertemplate=f"<b>{usage}</b><br>Zone %{{x}}: %{{y:.1f}} kNm³<extra></extra>",
+                ))
+        fig_gaz_bar.update_layout(
+            barmode="stack", title="Consommation gaz par zone et usage (kNm³/an)",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="kNm³/an", height=320,
+            margin=dict(l=50,r=20,t=40,b=40), legend=dict(bgcolor="#0b1929"),
+        )
+        st.plotly_chart(fig_gaz_bar, use_container_width=True)
+
+    with gg2:
+        fig_gaz_obj = go.Figure()
+        fig_gaz_obj.add_trace(go.Bar(
+            name="Réel 2024", x=zones_choisies,
+            y=[totaux_gaz[z] / 1000 for z in zones_choisies],
+            marker_color=[COULEURS_ZONE[z] for z in zones_choisies],
+            text=[f"{totaux_gaz[z]/1000:.1f}" for z in zones_choisies],
+            textposition="outside", opacity=0.9,
+        ))
+        fig_gaz_obj.add_trace(go.Bar(
+            name="Objectif (&#8722;39,2%)", x=zones_choisies,
+            y=[totaux_gaz_obj[z] / 1000 for z in zones_choisies],
+            marker_color=[COULEURS_ZONE[z] for z in zones_choisies],
+            text=[f"{totaux_gaz_obj[z]/1000:.1f}" for z in zones_choisies],
+            textposition="outside", opacity=0.4, marker_pattern_shape="x",
+        ))
+        fig_gaz_obj.update_layout(
+            barmode="group", title="Réel vs Objectif gaz (kNm³/an)",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="kNm³/an", height=320,
+            margin=dict(l=50,r=20,t=40,b=40), legend=dict(bgcolor="#0b1929"),
+        )
+        st.plotly_chart(fig_gaz_obj, use_container_width=True)
+
+    # ── C. SUIVI MENSUEL ESTIMÉ ─────────────────────────────────────────────
+    if vue_mode == "Mensuelle (estimée)":
+        st.markdown('<div class="sec-hdr">C — Évolution mensuelle estimée par zone</div>',
+                    unsafe_allow_html=True)
+        h_tot = df["h_service"].sum()
+        if h_tot == 0:
+            st.warning("Pas d'heures de service disponibles pour l'estimation mensuelle.")
+        else:
+            st.markdown("""
+            <div style="font-size:12px;color:#4d7fa8;margin-bottom:12px;padding:8px 12px;
+                        background:#0b1929;border-radius:6px;border:1px solid #162030;">
+              <strong>Méthode :</strong> les consommations annuelles par zone sont distribuées
+              mensuellement au prorata des heures de service de la trigénération.
+              Il s'agit d'une estimation indicative — un suivi réel nécessite des compteurs
+              divisionnaires par zone (Projet N°1 de l'audit).
+            </div>""", unsafe_allow_html=True)
+
+            records = []
+            for _, row_m in df.iterrows():
+                coef = row_m["h_service"] / h_tot
+                r = {"Mois": row_m["mois"]}
+                for z in ZONES:
+                    r[f"Élec {z} (MWh)"]  = totaux_elec[z] * coef / 1000
+                    r[f"Gaz {z} (kNm³)"]  = totaux_gaz[z]  * coef / 1000
+                    r[f"Élec_obj {z}"]     = totaux_elec_obj[z] * coef / 1000
+                records.append(r)
+            df_mensuel = pd.DataFrame(records)
+
+            fm_elec = go.Figure()
+            for z in zones_choisies:
+                fm_elec.add_trace(go.Scatter(
+                    x=df_mensuel["Mois"], y=df_mensuel[f"Élec {z} (MWh)"],
+                    mode="lines+markers", name=f"Zone {z}",
+                    line=dict(color=COULEURS_ZONE[z], width=2.5), marker=dict(size=8),
+                    hovertemplate=f"Zone {z}<br>%{{x}}<br>%{{y:.1f}} MWh<extra></extra>",
+                ))
+                fm_elec.add_trace(go.Scatter(
+                    x=df_mensuel["Mois"], y=df_mensuel[f"Élec_obj {z}"],
+                    mode="lines", name=f"Objectif {z}",
+                    line=dict(color=COULEURS_ZONE[z], width=1.5, dash="dash"),
+                    opacity=0.5, showlegend=True,
+                    hovertemplate=f"Objectif {z}<br>%{{x}}<br>%{{y:.1f}} MWh<extra></extra>",
+                ))
+            fm_elec.update_layout(
+                title="Consommation électrique mensuelle par zone (estimée)",
+                template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+                yaxis_title="MWh", height=340,
+                margin=dict(l=50,r=20,t=40,b=40),
+                legend=dict(bgcolor="#0b1929", font_size=11),
+            )
+            st.plotly_chart(fm_elec, use_container_width=True)
+
+            fm_stk = go.Figure()
+            for z in zones_choisies:
+                fm_stk.add_trace(go.Bar(
+                    name=f"Zone {z}", x=df_mensuel["Mois"],
+                    y=df_mensuel[f"Élec {z} (MWh)"],
+                    marker_color=COULEURS_ZONE[z], opacity=0.85,
+                ))
+            fm_stk.update_layout(
+                barmode="stack",
+                title="Répartition mensuelle par zone — électricité (MWh)",
+                template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+                yaxis_title="MWh", height=300,
+                margin=dict(l=50,r=20,t=40,b=40),
+                legend=dict(bgcolor="#0b1929"),
+            )
+            st.plotly_chart(fm_stk, use_container_width=True)
+
+            st.markdown('<div class="sec-hdr" style="font-size:14px;">Tableau mensuel estimé</div>',
+                        unsafe_allow_html=True)
+            cols_show = ["Mois"] + [f"Élec {z} (MWh)" for z in zones_choisies] + \
+                        [f"Gaz {z} (kNm³)" for z in zones_choisies]
+            df_show = df_mensuel[cols_show].copy()
+            for c_ in df_show.columns[1:]:
+                df_show[c_] = df_show[c_].map(lambda x: f"{x:.2f}")
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+    # ── D. IPE PAR ZONE ─────────────────────────────────────────────────────
+    st.markdown('<div class="sec-hdr">D — Indicateurs de performance énergétique (IPE)</div>',
+                unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="font-size:12px;color:#4d7fa8;margin-bottom:12px;padding:8px 12px;
+                background:#0b1929;border-radius:6px;border:1px solid #162030;">
+      <strong>Note :</strong> les ratios ci-dessous sont calculés avec la production de référence 2024
+      (16 411 490 UP/an). La clé de répartition par zone (Alpha 40% / Béta 35% / Gamma 25%) est
+      une hypothèse basée sur la capacité installée — à affiner avec les données réelles de
+      production par zone.
+    </div>""", unsafe_allow_html=True)
+
+    ipe_data = []
+    for z in ZONES:
+        prod_z = prod_ref * PROD_ZONE[z]
+        ratio_elec     = totaux_elec[z] / prod_z
+        ratio_elec_obj = totaux_elec_obj[z] / prod_z
+        ratio_gaz      = totaux_gaz[z] / prod_z * 1000
+        ratio_gaz_obj  = totaux_gaz_obj[z] / prod_z * 1000
+        ipe_data.append({
+            "Zone": z,
+            "Production estimée (UP/an)":       f"{prod_z:,.0f}",
+            "Élec réel (kWh/UP)":               f"{ratio_elec:.4f}",
+            "Élec objectif (kWh/UP)":           f"{ratio_elec_obj:.4f}",
+            "Élec nominal audit (kWh/UP)":       "0.293",
+            "GN réel (Nm³/UP ×10⁻³)":          f"{ratio_gaz:.3f}",
+            "GN objectif (Nm³/UP ×10⁻³)":      f"{ratio_gaz_obj:.3f}",
+            "GN nominal audit (Nm³/UP ×10⁻³)":  "N/A",
+        })
+
+    df_ipe = pd.DataFrame(ipe_data)
+    st.dataframe(df_ipe, use_container_width=True, hide_index=True)
+
+    fig_ipe = go.Figure()
+    for z in zones_choisies:
+        row_z = df_ipe[df_ipe["Zone"] == z].iloc[0]
+        fig_ipe.add_trace(go.Bar(
+            name=f"Zone {z}",
+            x=["Réel 2024", "Objectif", "Nominal audit"],
+            y=[float(row_z["Élec réel (kWh/UP)"]),
+               float(row_z["Élec objectif (kWh/UP)"]),
+               0.293],
+            marker_color=COULEURS_ZONE[z], opacity=0.85,
+        ))
+    fig_ipe.add_hline(y=0.293, line_dash="dash", line_color="#ffd200",
+                      annotation_text="Cible audit 0.293 kWh/UP",
+                      annotation_font_color="#ffd200", annotation_position="right")
+    fig_ipe.update_layout(
+        barmode="group", title="IPE électrique par zone (kWh/UP)",
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="kWh/UP", height=320,
+        margin=dict(l=60,r=120,t=40,b=40), legend=dict(bgcolor="#0b1929"),
+    )
+    st.plotly_chart(fig_ipe, use_container_width=True)
+
+    # ── E. POTENTIEL D'ÉCONOMIES PAR ZONE ───────────────────────────────────
+    st.markdown('<div class="sec-hdr">E — Potentiel d\'économies par zone</div>',
+                unsafe_allow_html=True)
+
+    eco_rows = []
+    for z in ZONES:
+        eco_elec_kwh = totaux_elec[z] - totaux_elec_obj[z]
+        eco_gaz_nm3  = totaux_gaz[z]  - totaux_gaz_obj[z]
+        eco_elec_dt  = eco_elec_kwh * prix_kwh_steg
+        eco_gaz_dt   = eco_gaz_nm3  * prix_gaz_nm3
+        eco_total_dt = eco_elec_dt + eco_gaz_dt
+        co2_elec_tep = eco_elec_kwh / 1_000_000 * 1e3 * 0.283
+        co2_gaz_tep  = eco_gaz_nm3  / 1e3 * 0.9
+        co2_evite    = (co2_elec_tep + co2_gaz_tep) * 2.349
+        eco_rows.append({
+            "Zone": z,
+            "Éco élec (MWh/an)":  round(eco_elec_kwh / 1000, 1),
+            "Éco gaz (kNm³/an)":  round(eco_gaz_nm3 / 1000, 2),
+            "Gain élec (DT/an)":  round(eco_elec_dt),
+            "Gain gaz (DT/an)":   round(eco_gaz_dt),
+            "Gain total (DT/an)": round(eco_total_dt),
+            "CO₂ évité (t/an)":   round(co2_evite, 1),
+        })
+
+    df_eco = pd.DataFrame(eco_rows)
+
+    fig_eco = go.Figure()
+    fig_eco.add_trace(go.Bar(
+        name="Gain électricité",
+        x=[r["Zone"] for r in eco_rows],
+        y=[r["Gain élec (DT/an)"] for r in eco_rows],
+        marker_color="#00b4d8",
+        text=[f"{r['Gain élec (DT/an)']:,.0f} DT" for r in eco_rows],
+        textposition="inside",
+    ))
+    fig_eco.add_trace(go.Bar(
+        name="Gain gaz naturel",
+        x=[r["Zone"] for r in eco_rows],
+        y=[r["Gain gaz (DT/an)"] for r in eco_rows],
+        marker_color="#f7971e",
+        text=[f"{r['Gain gaz (DT/an)']:,.0f} DT" for r in eco_rows],
+        textposition="inside",
+    ))
+    fig_eco.update_layout(
+        barmode="stack",
+        title="Potentiel d'économies financières par zone (DT/an)",
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="DT/an", height=320,
+        margin=dict(l=60,r=20,t=40,b=40), legend=dict(bgcolor="#0b1929"),
+    )
+    st.plotly_chart(fig_eco, use_container_width=True)
+    st.dataframe(df_eco, use_container_width=True, hide_index=True)
+
+    st.markdown("""
+    <div style="font-size:12px;color:#4d7fa8;margin-top:20px;padding:12px 16px;
+                background:#0b1929;border-radius:8px;border:1px solid #162030;line-height:1.8;">
+      <strong style="color:#90c2e7;">&#128204; Sources des données :</strong><br>
+      &bull; <strong>Électricité par zone</strong> : Tableau 43, Rapport d'audit ADWYA 2025 (données réelles 2024).<br>
+      &bull; <strong>Gaz naturel par zone</strong> : Tableau 44, Rapport d'audit ADWYA 2025.<br>
+      &bull; <strong>Objectifs</strong> : Plan d'actions audit — Projet N°4 (&#8722;17,6% élec) et Projet N°7 (&#8722;39,2% GN).<br>
+      &bull; <strong>IPE</strong> : Production 2024 = 16 411 490 UP (Tableau 11). Clé de répartition par zone à affiner.<br>
+      <br>
+      <strong style="color:#90c2e7;">&#128295; Recommandation :</strong>
+      Pour un suivi réel par zone, mettre en place les 31 compteurs divisionnaires
+      recommandés dans le Projet N°1 de l'audit (investissement 290 000 DT, TRB 2,3–4,6 ans).
+    </div>""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 6 — RAPPORT TECHNIQUE & EXPORT
+# ─────────────────────────────────────────────────────────────────────────────
+with tab6:
 
     tg  = perf_tag(eta_glob_moy, seuil_eta_glob, eta_glob_nom)
     te  = perf_tag(eta_e_moy,    seuil_eta_e,    eta_e_nom)
@@ -784,14 +1240,13 @@ with tab5:
     nb_ok    = nb_mois - df_al5["Mois"].nunique()
     jan_flag = any(df["mois"].str.strip().str.lower().str.startswith("jan"))
 
-    # Estimation froid perdu en janvier
     jan_rows = df[df["mois"].str.strip().str.lower().str.startswith("jan")]
     froid_perdu_jan = 0
     if not jan_rows.empty:
         chaleur_jan = jan_rows["chaleur"].values[0]
         froid_perdu_jan = chaleur_jan * cop_nom
 
-    # ── A. SYNTHÈSE GÉNÉRALE ────────────────────────────────────────────
+    # ── A. SYNTHÈSE GÉNÉRALE ────────────────────────────────────────────────
     st.markdown('<div class="sec-hdr">A — Synthèse générale</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="rbox">
@@ -821,8 +1276,7 @@ with tab5:
         Chaleur récupérée : <strong>{total_chaleur/1e6:.3f} GWh</strong><br>
         Froid récupéré : <strong>{total_froid/1e6:.3f} GWh</strong><br>
         Énergie utile totale : <strong>{(total_elec+total_chaleur+total_froid)/1e6:.3f} GWh</strong><br>
-        Gaz consommé : <strong>{total_gaz_nm3:,.0f} Nm³</strong>
-        ({total_pgaz/1e6:.3f} GWh_PCI)
+        Gaz consommé : <strong>{total_gaz_nm3:,.0f} Nm³</strong> ({total_pgaz/1e6:.3f} GWh_PCI)
       </p>
       <h4>Mois remarquables</h4>
       <p>
@@ -849,8 +1303,8 @@ with tab5:
       </p>
     </div>""", unsafe_allow_html=True)
 
-    # ── B. OBSERVATIONS & DIAGNOSTIC ────────────────────────────────────
-    st.markdown('<div class="sec-hdr">B — Observations & diagnostic technique</div>',
+    # ── B. OBSERVATIONS & DIAGNOSTIC — CENTRALE ────────────────────────────
+    st.markdown('<div class="sec-hdr">B — Observations & diagnostic technique — Centrale</div>',
                 unsafe_allow_html=True)
     st.markdown(f"""
     <div class="rbox">
@@ -879,11 +1333,11 @@ with tab5:
       <p>
         <strong>Disponibilité :</strong> la machine a été hors service en janvier 2025
         (COP = 0, froid = 0 kWh), représentant une perte estimée de
-        <strong>{froid_perdu_jan/1000:.0f} MWh</strong> de froid non produit sur ce mois.<br>
+        <strong>{froid_perdu_jan/1000:.0f} MWh</strong> de froid non produit.<br>
         <strong>COP moyen opérationnel :</strong>
         {f"{cop_moy:.3f}" if not np.isnan(cop_moy) else "N/A"} vs nominal {cop_nom:.2f}.
         Le COP d'août 2024 (0.118) est anormalement bas : la température élevée
-        de l'eau de tour en été (>35°C) dégrade fortement les performances de l'absorption.
+        de l'eau de tour en été (&gt;35°C) dégrade fortement les performances de l'absorption.
         La pompe eau de tour a un débit réel de ~150 m³/h vs 230 m³/h nominal
         (sous-dimensionnement confirmé par l'audit).<br>
         <strong>Recommandation clé :</strong> redimensionner la pompe eau de tour
@@ -906,8 +1360,171 @@ with tab5:
       </p>
     </div>""", unsafe_allow_html=True)
 
-    # ── C. CONCLUSIONS ───────────────────────────────────────────────────
-    st.markdown('<div class="sec-hdr">C — Conclusions</div>', unsafe_allow_html=True)
+    # ── C. OBSERVATIONS PAR ZONE ────────────────────────────────────────────
+    st.markdown('<div class="sec-hdr">C — Observations & diagnostic par zone de production</div>',
+                unsafe_allow_html=True)
+
+    # Calculs locaux pour les observations par zone
+    _elec_alpha  = totaux_elec["Alpha"]
+    _elec_beta   = totaux_elec["Béta"]
+    _elec_gamma  = totaux_elec["Gamma"]
+    _gaz_alpha   = totaux_gaz["Alpha"]
+    _gaz_beta    = totaux_gaz["Béta"]
+    _gaz_gamma   = totaux_gaz["Gamma"]
+    _eco_alpha   = (_elec_alpha - totaux_elec_obj["Alpha"]) * prix_kwh_steg + \
+                   (_gaz_alpha - totaux_gaz_obj["Alpha"]) * prix_gaz_nm3
+    _eco_beta    = (_elec_beta  - totaux_elec_obj["Béta"])  * prix_kwh_steg + \
+                   (_gaz_beta  - totaux_gaz_obj["Béta"])  * prix_gaz_nm3
+    _eco_gamma   = (_elec_gamma - totaux_elec_obj["Gamma"]) * prix_kwh_steg + \
+                   (_gaz_gamma - totaux_gaz_obj["Gamma"]) * prix_gaz_nm3
+
+    st.markdown(f"""
+    <div class="rbox">
+
+      <div class="zone-alpha">
+        <h4>&#128994; Zone Alpha — Fabrication (formes sèches : comprimés, gélules, poudres)</h4>
+      </div>
+
+      <p><strong>Profil de consommation :</strong>
+        La Zone Alpha est la plus consommatrice en électricité avec
+        <strong>{_elec_alpha/1000:.0f} MWh/an</strong>
+        ({_elec_alpha/total_usine_elec*100:.1f}% de l'usine).
+        Le poste GEG (froid) y représente à lui seul
+        {ZONE_DATA_ANNUEL['elec']['GEG (froid)']['Alpha']/1000:.0f} MWh/an
+        ({ZONE_DATA_ANNUEL['elec']['GEG (froid)']['Alpha']/_elec_alpha*100:.0f}% de la zone),
+        ce qui traduit des besoins frigorifiques intenses liés au conditionnement d'air
+        des salles classées.
+      </p>
+
+      <p><strong>Interprétation des écarts :</strong>
+        Les CTA(s) de la zone Alpha consomment
+        {ZONE_DATA_ANNUEL['elec']['CTA']['Alpha']/1000:.0f} MWh/an.
+        L'audit révèle que 6 CTA(s) sont vétustes (CTA3, CTA5, CTA6, CTA10, CTA13, CTA14) :
+        gaines non étanches, sondes de température erronées, vannes 3 voies by-passées.
+        Ces défaillances contraignent le système à abaisser la consigne d'eau glacée en
+        dessous de 6°C pour compenser, générant une surconsommation en cascade sur les GEG.
+        La température de soufflage mesurée (~12°C) est 6°C en-dessous de l'optimum (18°C),
+        ce qui représente une surconsommation d'environ <strong>48%</strong> sur les GEG correspondants.
+      </p>
+
+      <p><strong>Gaz naturel :</strong>
+        La chaudière à vapeur Alpha consomme {_gaz_alpha/1000:.1f} kNm³/an
+        avec un taux de charge moyen de seulement <strong>5,9%</strong> (117 kg/h produits
+        sur une capacité de 2 000 kg/h). Ce sous-dimensionnement de charge amplifie les pertes
+        fixes (déperditions surfaciques 2,9%, purges 26,8%) et porte le ratio gaz à
+        <strong>85 Nm³/tonne</strong> de vapeur vs 70–72 Nm³/tonne en usage optimal.
+      </p>
+
+      <p><strong>Observations spécifiques :</strong>
+        La récupération de chaleur issue de la trigénération est active pour la zone Alpha
+        (circuit EC 300 kW + ECS 370 kW), ce qui réduit la dépendance à la chaudière EC.
+        Toutefois, des compteurs d'énergie thermique comptabilisent indûment la chaleur
+        de la chaudière EC comme chaleur récupérée lorsque les deux circuits fonctionnent
+        simultanément.
+      </p>
+
+      <p><strong>Potentiel d'économies identifié :</strong>
+        <span class="tag-warn">~{_eco_alpha:,.0f} DT/an réalisables</span>
+        principalement via : remplacement des 6 CTA vétustes (économie 87 305 DT/an, TRB 5,5–6,9 ans)
+        et centralisation de la production de vapeur (économie 15 633 DT/an, TRB 4,6–5,8 ans).
+      </p>
+
+      <div class="zone-beta" style="margin-top:20px;">
+        <h4>&#129001; Zone Béta — Conditionnement & formes liquides (sirops, pommades)</h4>
+      </div>
+
+      <p><strong>Profil de consommation :</strong>
+        La zone Béta consomme <strong>{_elec_beta/1000:.0f} MWh/an</strong> en électricité
+        ({_elec_beta/total_usine_elec*100:.1f}% de l'usine) et
+        <strong>{_gaz_beta/1000:.0f} kNm³/an</strong> en gaz naturel,
+        ce qui en fait le plus grand consommateur de gaz parmi les 3 zones
+        ({_gaz_beta/max(total_usine_gaz,1)*100:.0f}% des chaudières usine).
+      </p>
+
+      <p><strong>Interprétation des écarts :</strong>
+        La spécificité technologique de la zone Béta réside dans ses exigences de
+        déshumidification intensive assurées par des Munters à gaz naturel
+        ({ZONE_DATA_ANNUEL['gaz_nm3']['Munters']['Béta']/1000:.0f} kNm³/an).
+        Cette consommation est structurellement liée aux normes GMP pour les formes liquides.
+        La chaudière à eau chaude ({ZONE_DATA_ANNUEL['gaz_nm3']['Chaudière EC']['Béta']/1000:.0f} kNm³/an)
+        fonctionne en continu car <strong>aucune récupération de chaleur de la trigénération
+        n'est raccordée à cette zone</strong>, contrairement aux zones Alpha et Gamma.
+        Il s'agit du déficit structurel le plus significatif de l'installation actuelle.
+      </p>
+
+      <p><strong>Observations sur l'air comprimé :</strong>
+        Le réseau interne de la zone Béta est en acier galvanisé de diamètre 3/4" (DN20),
+        diamètre insuffisant pour le débit requis. La pression en bout de réseau chute à
+        6,0–6,5 bars vs 7,5 bars à la sortie du compresseur (perte de charge de 13–20%).
+        Ce réseau non bouclé aggrave la situation et contraint le compresseur à maintenir
+        une pression de consigne élevée inutilement.
+      </p>
+
+      <p><strong>Observations sur les V3V :</strong>
+        La majorité des vannes 3 voies (V3V) des CTA de la zone Béta sont by-passées
+        (régulation non fonctionnelle). Cela engendre une surconsommation d'eau glacée
+        et une moins bonne maîtrise de la température et de l'humidité des salles.
+      </p>
+
+      <p><strong>Potentiel d'économies identifié :</strong>
+        <span class="tag-alert">~{_eco_beta:,.0f} DT/an réalisables</span>
+        via : raccordement de la zone Béta à la récupération de chaleur
+        (élimination de la chaudière EC pendant fonctionnement trigénération),
+        réhabilitation réseau air comprimé (gain 5–7% consommation compresseur),
+        et remplacement V3V (gain estimé 10% sur GEG de la zone).
+      </p>
+
+      <div class="zone-gamma" style="margin-top:20px;">
+        <h4>&#129002; Zone Gamma — Extension & production mixte</h4>
+      </div>
+
+      <p><strong>Profil de consommation :</strong>
+        La zone Gamma consomme <strong>{_elec_gamma/1000:.0f} MWh/an</strong> en électricité
+        ({_elec_gamma/total_usine_elec*100:.1f}% de l'usine) et
+        <strong>{_gaz_gamma/1000:.1f} kNm³/an</strong> en gaz naturel.
+        Le poste chaufferies y représente
+        {ZONE_DATA_ANNUEL['elec']['Chaufferies']['Gamma']/1000:.0f} MWh/an
+        ({ZONE_DATA_ANNUEL['elec']['Chaufferies']['Gamma']/_elec_gamma*100:.0f}% de la zone),
+        proportion plus élevée que les autres zones, reflétant la dépendance relative à
+        la chaudière à vapeur dédiée.
+      </p>
+
+      <p><strong>Interprétation des écarts :</strong>
+        La chaudière à vapeur Gamma ({ZONE_DATA_ANNUEL['gaz_nm3']['Chaudière vapeur']['Gamma']/1000:.0f} kNm³/an)
+        présente un taux de charge moyen de <strong>21%</strong> (212 kg/h sur 1 000 kg/h de capacité),
+        meilleur que la chaudière Alpha mais encore loin de l'optimum.
+        Son ratio gaz de <strong>80 Nm³/tonne</strong> de vapeur dépasse de 11% le seuil de référence
+        de 72 Nm³/tonne, principalement à cause d'un taux de purge élevé
+        (salinité actuelle 1 260 ppm vs 3 000 ppm recommandés).
+      </p>
+
+      <p><strong>Points positifs :</strong>
+        Les CTA(s) de la zone Gamma sont relativement récents et en meilleur état.
+        La récupération de chaleur de la trigénération est active sur cette zone
+        (circuit EC Gamma 600 kW), permettant de réduire significativement
+        l'usage de la chaudière à eau chaude.
+        Le système de gestion technique centralisée (GTC) des CTA Gamma est relativement
+        fonctionnel, bien que quelques problèmes de supervision des paramètres persistent.
+      </p>
+
+      <p><strong>Anomalie identifiée :</strong>
+        Un débordement de la bâche alimentaire de la chaudière Gamma a été constaté
+        lors de l'audit, symptôme d'un dysfonctionnement du régulateur de niveau
+        ou d'une consigne incorrecte, entraînant des pertes d'eau adoucie et
+        une perturbation du bilan thermique de la chaudière.
+      </p>
+
+      <p><strong>Potentiel d'économies identifié :</strong>
+        <span class="tag-warn">~{_eco_gamma:,.0f} DT/an réalisables</span>
+        via : centralisation des deux chaudières vapeur (économie 15 633 DT/an, TRB 4,6–5,8 ans),
+        correction de la salinité (réduction purges de 29% à 15%), et optimisation
+        de la consigne eau glacée en hiver (+1°C = −3% consommation GEG).
+      </p>
+
+    </div>""", unsafe_allow_html=True)
+
+    # ── D. CONCLUSIONS ──────────────────────────────────────────────────────
+    st.markdown('<div class="sec-hdr">D — Conclusions</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="rbox">
       <p>La centrale trigénération ADWYA constitue un investissement stratégique
@@ -922,17 +1539,29 @@ with tab5:
           sa panne en janvier 2025 et ses performances dégradées en été (COP ~0.118 en août)
           représentent la principale source de pertes d'efficacité de la centrale.</li>
         <li>La récupération thermique est satisfaisante (η_th ~ {eta_th_moy*100:.1f}%)
-          mais sous-exploitée en zone Béta (aucune récupération prévue).</li>
+          mais <strong>sous-exploitée en zone Béta</strong> (aucune récupération prévue),
+          forçant la chaudière EC Béta à fonctionner en permanence.</li>
+        <li><strong>Zone Alpha</strong> : plus grande consommatrice d'électricité de l'usine
+          ({totaux_elec["Alpha"]/total_usine_elec*100:.0f}%), avec 6 CTA vétustes à remplacer
+          en priorité pour réduire les pertes frigorifiques en cascade.</li>
+        <li><strong>Zone Béta</strong> : plus grande consommatrice de gaz naturel (chaudières +
+          Munters), structurellement pénalisée par l'absence de récupération thermique de la
+          trigénération. L'extension du réseau de récupération vers cette zone constitue
+          la priorité d'investissement la plus rentable sur le plan thermique.</li>
+        <li><strong>Zone Gamma</strong> : profil le plus équilibré des trois, avec une
+          récupération thermique active et des CTA en meilleur état, mais des
+          rendements de chaudière vapeur encore perfectibles.</li>
         <li>Le bilan économique est <strong>{'positif' if total_gain>=0 else 'négatif'}
           ({total_gain:+,.0f} DT)</strong> sur la période, confirmant la rentabilité
           de l'installation malgré les incidents.</li>
-        <li>Des actions correctives ciblées (plan D ci-dessous) permettraient d'atteindre
-          η_global > {eta_glob_nom*100:.0f}% et d'améliorer le gain annuel de 15 à 30%.</li>
+        <li>Le potentiel d'économies inter-zones identifié par l'audit s'élève à
+          <strong>{sum([(totaux_elec[z]-totaux_elec_obj[z])*prix_kwh_steg + (totaux_gaz[z]-totaux_gaz_obj[z])*prix_gaz_nm3 for z in ZONES]):,.0f} DT/an</strong>
+          pour un investissement global de 2 044 140 DT (TRB moyen 3,3–4,5 ans).</li>
       </ol>
     </div>""", unsafe_allow_html=True)
 
-    # ── D. PLAN D'ACTIONS ────────────────────────────────────────────────
-    st.markdown('<div class="sec-hdr">D — Plan d\'actions & recommandations</div>',
+    # ── E. PLAN D'ACTIONS & RECOMMANDATIONS ────────────────────────────────
+    st.markdown('<div class="sec-hdr">E — Plan d\'actions & recommandations</div>',
                 unsafe_allow_html=True)
     st.markdown("""
     <div class="rbox">
@@ -953,7 +1582,7 @@ with tab5:
           Impact estimé : +20% sur COP absorption.
         </li>
         <li>
-          <strong>Réhabilitation des vannes 3 voies (V3V)</strong><br>
+          <strong>Réhabilitation des vannes 3 voies (V3V) — Zones Alpha & Béta</strong><br>
           Remplacer les V3V by-passées sur les CTA des zones Alpha et Béta.
           Activer la régulation automatique. Impact : réduction consommation GEG
           et amélioration qualité conditionnement d'air.
@@ -968,14 +1597,14 @@ with tab5:
           (mesure COP en temps réel). Économie estimée : 62 830 DT/an. TRB : 2.3–4.6 ans.
         </li>
         <li>
-          <strong>Optimisation consigne eau glacée</strong><br>
+          <strong>Optimisation consigne eau glacée (toutes zones)</strong><br>
           Augmenter la consigne de 6°C à 7–8°C en hiver (gain ~3%/°C sur GEG).
-          Automatiser la variation saisonnière.
+          Automatiser la variation saisonnière. Impact immédiat sur GEG Alpha et Gamma.
         </li>
         <li>
-          <strong>Réduction pression air comprimé</strong><br>
-          Passer de 7.5 bar à 7.0 bar après réhabilitation réseau Béta.
-          Gain : ~5% consommation air comprimé ≈ 36 990 kWh/an.
+          <strong>Réhabilitation réseau air comprimé zone Béta</strong><br>
+          Remplacer la conduite 3/4" par DN40 PPR et boucler le réseau.
+          Gain sur la pression de consigne : −0,5 bar → gain ~5% sur consommation compresseur.
         </li>
         <li>
           <strong>Révision puissance souscrite STEG</strong><br>
@@ -988,19 +1617,36 @@ with tab5:
           Objectif cos φ = 1 sans solliciter l'alternateur.
           Économie : ~89 464 DT/an. TRB : 0.2 an.
         </li>
+        <li>
+          <strong>Correction salinité chaudières vapeur Alpha & Gamma</strong><br>
+          Ajuster les temporisations de purge pour atteindre 3 000 ppm (vs 1 260 ppm actuel).
+          Réduction estimée des purges : de 47% à 15% du débit vapeur. Gain GN direct.
+        </li>
       </ol>
       <h4>&#128640; Améliorations moyen terme (6–18 mois)</h4>
-      <ol style="line-height:2.2;" start="9">
+      <ol style="line-height:2.2;" start="10">
         <li>
           <strong>Extension récupération vers zone Béta</strong><br>
           Installer un 4ème échangeur à plaques + 2 pompes secondaires.
-          Éliminer la dépendance à la chaudière eau chaude Béta pendant
-          le fonctionnement de la trigénération.
+          Éliminer la dépendance à la chaudière eau chaude Béta (277 860 Nm³/an)
+          pendant le fonctionnement de la trigénération.
+          Économie estimée : 159 771 DT/an sur le seul poste gaz Béta.
         </li>
         <li>
           <strong>Remplacement CTA vétustes — Zone Alpha</strong><br>
           Regrouper 6 CTA en 3 nouvelles unités : double flux, roue libre,
           free-cooling, variateurs de vitesse. Économie : 87 305 DT/an. TRB : 5.5–6.9 ans.
+        </li>
+        <li>
+          <strong>Centralisation chaudières vapeur Alpha + Gamma</strong><br>
+          Une seule chaudière de 2 T/h suffit pour les deux zones.
+          Réduire le ratio GN de 82 à 72 Nm³/tonne. Économie : 15 633 DT/an. TRB : 4.6–5.8 ans.
+        </li>
+        <li>
+          <strong>GTC zones Alpha & Béta</strong><br>
+          Installer un système de gestion technique centralisée avec sondes de
+          température et d'humidité fiables, servomoteurs, automate.
+          Gain comportemental et énergétique estimé : 10% sur froid et GN. TRB : 10–13.9 ans.
         </li>
         <li>
           <strong>ISO 50001 — Système de management de l'énergie</strong><br>
@@ -1013,6 +1659,7 @@ with tab5:
       <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;">
         <tr style="background:#0d2a40;color:#90c2e7;text-align:left;">
           <th style="padding:8px 10px;">Action</th>
+          <th style="padding:8px 10px;">Zone(s)</th>
           <th style="padding:8px 10px;">Priorité</th>
           <th style="padding:8px 10px;">Économie estimée</th>
           <th style="padding:8px 10px;">Investissement</th>
@@ -1020,6 +1667,7 @@ with tab5:
         </tr>
         <tr style="border-bottom:1px solid #1b3352;">
           <td style="padding:7px 10px;">Fiabilisation absorption + pompe tour</td>
+          <td style="padding:7px 10px;">Toutes</td>
           <td style="padding:7px 10px;color:#e63946;font-weight:600;">CRITIQUE</td>
           <td style="padding:7px 10px;">&gt;200 MWh froid/an récupéré</td>
           <td style="padding:7px 10px;">Maintenance</td>
@@ -1027,44 +1675,57 @@ with tab5:
         </tr>
         <tr style="border-bottom:1px solid #1b3352;background:#0b1929;">
           <td style="padding:7px 10px;">Batteries condensateurs</td>
+          <td style="padding:7px 10px;">Toutes</td>
           <td style="padding:7px 10px;color:#ffd200;font-weight:600;">URGENT</td>
           <td style="padding:7px 10px;">89 464 DT/an</td>
           <td style="padding:7px 10px;">23 000 DT</td>
           <td style="padding:7px 10px;">0.2 an</td>
         </tr>
         <tr style="border-bottom:1px solid #1b3352;">
+          <td style="padding:7px 10px;">Extension récupération vers Béta</td>
+          <td style="padding:7px 10px;color:#f7971e;font-weight:600;">Béta</td>
+          <td style="padding:7px 10px;color:#ffd200;font-weight:600;">IMPORTANT</td>
+          <td style="padding:7px 10px;">~80 000 DT/an (GN)</td>
+          <td style="padding:7px 10px;">~60 000 DT</td>
+          <td style="padding:7px 10px;">~0.8 an</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1b3352;background:#0b1929;">
           <td style="padding:7px 10px;">Comptabilité énergétique étendue</td>
+          <td style="padding:7px 10px;">Toutes</td>
           <td style="padding:7px 10px;color:#ffd200;font-weight:600;">IMPORTANT</td>
           <td style="padding:7px 10px;">62 830 DT/an</td>
           <td style="padding:7px 10px;">290 000 DT</td>
           <td style="padding:7px 10px;">2.3–4.6 ans</td>
         </tr>
-        <tr style="border-bottom:1px solid #1b3352;background:#0b1929;">
-          <td style="padding:7px 10px;">Optimisation eau glacée + GEG</td>
-          <td style="padding:7px 10px;color:#ffd200;font-weight:600;">IMPORTANT</td>
-          <td style="padding:7px 10px;">51 429 DT/an</td>
-          <td style="padding:7px 10px;">230 000 DT</td>
-          <td style="padding:7px 10px;">3.3–4.5 ans</td>
-        </tr>
         <tr style="border-bottom:1px solid #1b3352;">
-          <td style="padding:7px 10px;">Puissance souscrite (Pss 1000 kVA)</td>
+          <td style="padding:7px 10px;">Remplacement CTA vétustes</td>
+          <td style="padding:7px 10px;color:#00b4d8;font-weight:600;">Alpha</td>
           <td style="padding:7px 10px;color:#ffd200;font-weight:600;">IMPORTANT</td>
-          <td style="padding:7px 10px;">14 200 DT/an</td>
-          <td style="padding:7px 10px;">0 DT</td>
-          <td style="padding:7px 10px;">Immédiat</td>
-        </tr>
-        <tr style="background:#0b1929;">
-          <td style="padding:7px 10px;">Remplacement CTA Zone Alpha</td>
-          <td style="padding:7px 10px;color:#90c2e7;font-weight:600;">MOYEN TERME</td>
           <td style="padding:7px 10px;">87 305 DT/an</td>
           <td style="padding:7px 10px;">600 000 DT</td>
           <td style="padding:7px 10px;">5.5–6.9 ans</td>
         </tr>
+        <tr style="border-bottom:1px solid #1b3352;background:#0b1929;">
+          <td style="padding:7px 10px;">Centralisation chaudières vapeur</td>
+          <td style="padding:7px 10px;color:#a0e878;font-weight:600;">Alpha+Gamma</td>
+          <td style="padding:7px 10px;color:#90c2e7;font-weight:600;">MOYEN TERME</td>
+          <td style="padding:7px 10px;">15 633 DT/an</td>
+          <td style="padding:7px 10px;">90 000 DT</td>
+          <td style="padding:7px 10px;">4.6–5.8 ans</td>
+        </tr>
+        <tr style="background:#0b1929;">
+          <td style="padding:7px 10px;">GTC Alpha & Béta</td>
+          <td style="padding:7px 10px;color:#00b4d8;font-weight:600;">Alpha+Béta</td>
+          <td style="padding:7px 10px;color:#90c2e7;font-weight:600;">MOYEN TERME</td>
+          <td style="padding:7px 10px;">41 150 DT/an</td>
+          <td style="padding:7px 10px;">570 000 DT</td>
+          <td style="padding:7px 10px;">10–13.9 ans</td>
+        </tr>
       </table>
     </div>""", unsafe_allow_html=True)
 
-    # ── E. EXPORT ────────────────────────────────────────────────────────
-    st.markdown('<div class="sec-hdr">E — Export des données</div>', unsafe_allow_html=True)
+    # ── F. EXPORT DES DONNÉES ───────────────────────────────────────────────
+    st.markdown('<div class="sec-hdr">F — Export des données</div>', unsafe_allow_html=True)
 
     df_exp = df[["mois","h_service","gaz","prod_nette","chaleur","froid","COP",
                  "eta_e","eta_th","eta_frig","eta_glob",
@@ -1078,23 +1739,47 @@ with tab5:
         "Valeur froid (DT)","Gain global (DT)","Remarque"
     ]
 
+    # Feuille Énergie par Zone
+    rows_zone_export = []
+    for usage in ZONE_DATA_ANNUEL["elec"]:
+        for z in ZONES:
+            rows_zone_export.append({
+                "Zone": z, "Type": "Électricité", "Usage": usage,
+                "Réel 2024 (kWh/an)":   ZONE_DATA_ANNUEL["elec"][usage][z],
+                "Objectif (kWh/an)":     ZONE_DATA_ANNUEL["elec_objectif"][usage][z],
+                "Réel 2024 (Nm³/an)":    0,
+                "Objectif (Nm³/an)":     0,
+            })
+    for usage in ZONE_DATA_ANNUEL["gaz_nm3"]:
+        for z in ZONES:
+            rows_zone_export.append({
+                "Zone": z, "Type": "Gaz naturel", "Usage": usage,
+                "Réel 2024 (kWh/an)":   0,
+                "Objectif (kWh/an)":     0,
+                "Réel 2024 (Nm³/an)":    ZONE_DATA_ANNUEL["gaz_nm3"][usage][z],
+                "Objectif (Nm³/an)":     ZONE_DATA_ANNUEL["gaz_nm3_objectif"][usage][z],
+            })
+    df_zone_export = pd.DataFrame(rows_zone_export)
+
     ce1, ce2 = st.columns(2)
     with ce1:
         csv_b = df_exp.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-        st.download_button("📥 Télécharger CSV", csv_b,
+        st.download_button("📥 Télécharger CSV (KPI mensuel)", csv_b,
                            "kpi_trigeneration_adwya.csv", mime="text/csv")
     with ce2:
         buf = BytesIO()
         with pd.ExcelWriter(buf, engine="openpyxl") as w:
             df_exp.to_excel(w, sheet_name="KPI Mensuels", index=False)
             bilan.to_excel(w, sheet_name="Bilan Flux", index=False)
+            df_zone_export.to_excel(w, sheet_name="Énergie par Zone", index=False)
+            df_eco.to_excel(w, sheet_name="Économies par Zone", index=False)
             if not df_al5.empty:
                 df_al5.to_excel(w, sheet_name="Alertes", index=False)
-            eco = df[["mois","cout_gaz_dt","val_elec_dt","val_chaleur_dt",
-                       "val_froid_dt","gain_global_dt"]].copy()
-            eco.columns = ["Mois","Coût gaz (DT)","Valeur élec (DT)",
-                           "Valeur chaleur (DT)","Valeur froid (DT)","Gain global (DT)"]
-            eco.to_excel(w, sheet_name="Analyse Économique", index=False)
+            eco_sheet = df[["mois","cout_gaz_dt","val_elec_dt","val_chaleur_dt",
+                            "val_froid_dt","gain_global_dt"]].copy()
+            eco_sheet.columns = ["Mois","Coût gaz (DT)","Valeur élec (DT)",
+                                  "Valeur chaleur (DT)","Valeur froid (DT)","Gain global (DT)"]
+            eco_sheet.to_excel(w, sheet_name="Analyse Économique", index=False)
         buf.seek(0)
         st.download_button("📊 Télécharger Excel (multi-onglets)", buf.read(),
                            "rapport_trigeneration_adwya.xlsx",
@@ -1105,6 +1790,5 @@ with tab5:
                 padding:10px;border-top:1px solid #162030;">
       Outil de suivi des performances &eacute;nerg&eacute;tiques &mdash;
       Centrale Trig&eacute;n&eacute;ration ADWYA &nbsp;&middot;&nbsp;
-      PFE RANIM ZAMMEL 2026 &nbsp;&middot;&nbsp; 
+      PFE RANIM ZAMMEL 2026
     </div>""", unsafe_allow_html=True)
-
