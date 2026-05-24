@@ -172,32 +172,57 @@ with st.sidebar:
         help="Colonnes requises : mois, h_service, prod_nette, gaz, froid, chaleur, COP")
 
 # =============================================================================
-# 4. DONNÉES
+# 4. DONNÉES — Dataset complet mai 2024 → mars 2026 (23 mois)
+# Source : Suivi_trigénération.xlsx combiné avec données antérieures
+# Colonnes : mois | h_service | prod_nette(kWh) | gaz(Nm³) | froid(kWh) | chaleur(kWh) | COP
 # =============================================================================
 COLONNES = ["mois", "h_service", "prod_nette", "gaz", "froid", "chaleur", "COP"]
 
-#  mois        h_serv  prod_nette    gaz       froid    chaleur    COP
+#  mois           h_serv  prod_nette    gaz        froid     chaleur     COP
 DATA_DEFAUT = [
-    ("Juin 2024",  710,  771_962,  192_530,  438_844,  510_983,  0.399),
-    ("Juil 2024",  576,  652_926,  154_636,  318_003,  384_522,  0.573),
+    # ── Anciennes données (mai 2024 – mai 2025) ─────────────────────────────
+    ("Mai  2024",  262,  797_294,  198_116,        0,  476_974,  None ),  # démarrage — pas de froid
+    ("Juin 2024",  710,  771_962,  192_530,  175_145,  510_983,  0.399),
+    ("Juil 2024",  576,  652_926,  154_636,  182_092,  384_522,  0.573),
     ("Août 2024",  437,  483_421,  114_942,   23_456,  221_970,  0.118),
     ("Sept 2024",  669,  735_425,  179_737,  212_682,  371_949,  0.746),
     ("Oct  2024",  742,  820_477,  197_633,  320_251,  495_215,  0.778),
-    ("Nov  2024",  687,  768_932,  186_451,  176_946,  432_366,  0.554),
+    ("Nov  2024",  687,  768_932,  186_451,  176_946,  432_365,  0.554),
     ("Déc  2024",  739,  831_777,  198_821,  151_977,  490_387,  0.512),
-    ("Jan  2025",  731,  849_815,  196_592,        0,  170_709,  None ),
+    ("Jan  2025",  731,  849_815,  196_592,        0,  170_709,  None ),  # panne absorption
     ("Fév  2025",  656,  747_997,  176_950,  112_379,  325_380,  0.539),
     ("Mars 2025",  724,  731_787,  176_210,  169_547,  418_558,  0.551),
-    ("Avr  2025",  698,  858_198,  209_513,  204_424,  483_362,  0.567),
-    ("Mai  2025",  731,  812_044,  199_061,  217_045,  488_017,  0.607),
+    ("Avr  2025",  698,  858_198,  209_513,  204_424,  483_363,  0.567),
+    ("Mai  2025",  731,  812_044,  199_061,  217_045,  488_018,  0.607),
+    # ── Nouvelles données (juin 2025 – mars 2026) ────────────────────────────
+    ("Juin 2025",  668,  728_584,  181_636,  174_776,  431_932,  0.568),
+    ("Juil 2025",  585,  621_357,  154_744,   91_827,  253_989,  0.573),
+    ("Août 2025",  423,  468_868,  115_157,    4_160,   45_834,  0.506),
+    ("Sept 2025",  711,  804_069,  193_717,        0,  137_424,  None ),  # abs. hors service
+    ("Oct  2025",  706,  764_207,  192_125,  199_696,  417_421,  0.676),
+    ("Nov  2025",  672,  742_398,  182_997,  228_292,  507_470,  0.690),
+    ("Déc  2025",  678,  736_383,  182_252,  218_581,  523_373,  0.628),
+    ("Jan  2026",  741,  811_989,  199_706,  178_501,  522_157,  0.554),
+    ("Fév  2026",  663,  737_835,  178_295,   85_310,  278_336,  0.572),
+    ("Mars 2026",  700,  803_107,  189_806,   21_305,   55_615,  0.609),
 ]
 
 CAUSES_COP = {
+    "Mai  2024": (
+        "Premier mois de démarrage (mai 2024) : machine à absorption non encore opérationnelle. "
+        "COP = 0, froid récupéré = 0 kWh. Mise en service progressive de l'unité."
+    ),
     "Jan  2025": (
         "Panne confirmée de la machine à absorption (janvier 2025) : "
         "COP = 0, froid récupéré = 0 kWh. "
         "Cause probable : défaillance mécanique circuit LiBr ou pompe de solution. "
         "Action : inspection complète et remise en service prioritaire."
+    ),
+    "Sept 2025": (
+        "Arrêt de la machine à absorption (septembre 2025) : "
+        "COP = 0, froid récupéré = 0 kWh. "
+        "Causes à investiguer : maintenance préventive ou défaillance technique. "
+        "Action : rapport d'intervention et remise en service."
     ),
     "Août 2024": (
         "COP anormalement bas (0.118) en période estivale. "
@@ -205,6 +230,16 @@ CAUSES_COP = {
         "encrassement du condenseur côté eau, déséquilibre concentration LiBr. "
         "Action : nettoyage condenseur, contrôle tour de refroidissement, "
         "analyse solution LiBr."
+    ),
+    "Août 2025": (
+        "COP bas (0.506) en période estivale — même phénomène qu'août 2024. "
+        "Température eau de tour élevée en été, froid récupéré quasi nul (4 160 kWh). "
+        "Action : renforcer le refroidissement tour, augmenter débit eau tour en été."
+    ),
+    "Mars 2026": (
+        "Froid très faible (21 305 kWh) et récupération thermique réduite (55 615 kWh). "
+        "Possible réduction des besoins en froid en fin d'hiver ou régulation conservative. "
+        "À surveiller : vérifier consignes eau glacée et état de l'absorbeur."
     ),
 }
 
@@ -426,6 +461,153 @@ ZONE_DATA_ANNUEL = {
 
 ZONES         = ["Alpha", "Béta", "Gamma"]
 COULEURS_ZONE = {"Alpha": "#00b4d8", "Béta": "#f7971e", "Gamma": "#a0e878"}
+
+# =============================================================================
+# DONNÉES MENSUELLES RÉELLES — Froid produit & Énergie récupérée par zone
+# Source : Suivi_trigénération.xlsx — Feuille Centrale (mai 2024 → mars 2026)
+# =============================================================================
+# Note : L'énergie récupérée par zone = EC Alpha + EC Alpha Sanitaire + EC Gamma
+# La zone Béta n'a pas de récupération thermique directe depuis la trigénération.
+# Le froid produit (absorbeur) est global — réparti entre les 3 zones.
+
+MONTHLY_ZONE_DATA = [
+    # (mois_label, froid_kWh, ec_chiller_kWh, ec_alpha_kWh, ec_alpha_sani_kWh, ec_gamma_kWh)
+    # ── Données mai 2024 – mai 2025 ──────────────────────────────────────────
+    ("Mai  2024",       0,  408_288,  41_131,  18_500,   9_055),
+    ("Juin 2024",  175_145,  438_844,  47_960,  13_891,  10_287),
+    ("Juil 2024",  182_092,  318_003,  38_746,  10_254,  17_520),
+    ("Août 2024",   23_456,  198_850,  16_390,   6_730,       0),
+    ("Sept 2024",  212_682,  285_259,  41_532,  12_849,  32_309),
+    ("Oct  2024",  320_251,  411_872,  35_797,  15_546,  32_000),
+    ("Nov  2024",  176_946,  319_286,  59_147,  18_582,  35_350),
+    ("Déc  2024",  151_977,  296_938,  85_798,  24_782,  82_870),
+    ("Jan  2025",       0,        0,  109_581,  24_154,  36_974),
+    ("Fév  2025",  112_379,  208_528,  59_434,  22_631,  34_787),
+    ("Mars 2025",  169_547,  307_868,  46_214,  19_274,  45_202),
+    ("Avr  2025",  204_424,  360_312,  41_737,  23_544,  57_770),
+    ("Mai  2025",  217_045,  357_416,  57_555,  15_609,  57_438),
+    # ── Nouvelles données juin 2025 – mars 2026 ──────────────────────────────
+    ("Juin 2025",  174_776,  307_540,  41_871,  10_532,  71_989),
+    ("Juil 2025",   91_827,  160_289,  42_386,   8_731,  42_583),
+    ("Août 2025",    4_160,    8_226,  21_743,     879,  14_986),
+    ("Sept 2025",       0,        0,   85_899,  10_790,  40_735),
+    ("Oct  2025",  199_696,  295_253,  73_770,  17_789,  30_609),
+    ("Nov  2025",  228_292,  330_901,  70_766,  20_539,  85_264),
+    ("Déc  2025",  218_581,  347_820,  79_486,  26_883,  69_184),
+    ("Jan  2026",  178_501,  322_039,  84_557,  27_687,  87_875),
+    ("Fév  2026",   85_310,  149_260,  52_616,  28_268,  48_192),
+    ("Mars 2026",   21_305,   34_989,  14_667,       0,   5_959),
+]
+
+df_zone_monthly = pd.DataFrame(MONTHLY_ZONE_DATA, columns=[
+    "mois", "froid_total_kwh", "ec_chiller_kwh",
+    "ec_alpha_kwh", "ec_alpha_sani_kwh", "ec_gamma_kwh"
+])
+# Calculs dérivés par zone
+df_zone_monthly["ec_alpha_total_kwh"]  = df_zone_monthly["ec_alpha_kwh"] + df_zone_monthly["ec_alpha_sani_kwh"]
+df_zone_monthly["ec_gamma_total_kwh"]  = df_zone_monthly["ec_gamma_kwh"]
+df_zone_monthly["ec_beta_total_kwh"]   = 0   # pas de récupération zone Béta
+df_zone_monthly["rec_totale_kwh"]      = (df_zone_monthly["ec_alpha_total_kwh"]
+                                          + df_zone_monthly["ec_gamma_total_kwh"]
+                                          + df_zone_monthly["ec_chiller_kwh"])
+# Froid par zone : répartition estimée absorbeur 33% / 33% / 34%
+df_zone_monthly["froid_alpha_kwh"]  = (df_zone_monthly["froid_total_kwh"] * 0.333).round()
+df_zone_monthly["froid_beta_kwh"]   = (df_zone_monthly["froid_total_kwh"] * 0.333).round()
+df_zone_monthly["froid_gamma_kwh"]  = (df_zone_monthly["froid_total_kwh"] * 0.334).round()
+
+# =============================================================================
+# DONNÉES EAU CHAUDE & EAU GLACÉE PAR ZONE (Audit ADWYA 2025)
+# =============================================================================
+
+# ── EAU CHAUDE ──────────────────────────────────────────────────────────────
+EC_ZONES = {
+    # Source principale par zone (chaudière ou récupération TRI)
+    "source": {
+        "Alpha":  "Chaudière XR408 (348 kW) + Récup. TRI (300 kW EC + 370 kW ECS)",
+        "Béta":   "Chaudière VIADRUS G700 (400 kW) — sans récupération TRI",
+        "Gamma":  "Chaudière EC (291 kW) + Récup. TRI (600 kW)",
+    },
+    # Puissance installée chaudière EC (kW)
+    "pu_chaudiere_kw": {"Alpha": 348,  "Béta": 400,  "Gamma": 291},
+    # Puissance récupérable depuis TRI (kW) — 0 si pas de récupération
+    "pu_recuperation_kw": {"Alpha": 670,  "Béta": 0,    "Gamma": 600},
+    # Besoins réels estimés (kW)
+    "besoin_reel_kw":     {"Alpha": 300,  "Béta": 350,  "Gamma": 320},
+    # Température de départ circuit secondaire (°C)
+    "T_depart_c":         {"Alpha": 75,   "Béta": 75,   "Gamma": 75},
+    # Température de retour circuit secondaire (°C)
+    "T_retour_c":         {"Alpha": 60,   "Béta": 60,   "Gamma": 60},
+    # Énergie annuelle consommée par la chaudière EC (kWh/an) — audit tab 44
+    "energie_chaudiere_kwh": {
+        "Alpha": 55_600,   # armoire chaufferie Alpha (électricité auxiliaire)
+        "Béta":  104_244,  # armoire chaufferie Béta (+ consommation gaz)
+        "Gamma": 126_065,  # armoire chaufferie Gamma
+    },
+    # Gaz naturel dédié chaudière EC (Nm³/an)
+    "gaz_chaudiere_nm3": {"Alpha": 0,       "Béta": 277_860,  "Gamma": 0},
+    # Énergie thermique récupérée TRI (kWh/an — 6 mois 2024 extrapolés)
+    "energie_recuperee_kwh": {
+        "Alpha": 300_000,  # ~300 kW × 1 000 h service estimé
+        "Béta":  0,
+        "Gamma": 600_000,  # ~600 kW × 1 000 h service estimé
+    },
+    # Nombre de pompes installées / en service
+    "pompes_installees": {"Alpha": 4, "Béta": 4, "Gamma": 3},
+    "pompes_service":    {"Alpha": 3, "Béta": 2, "Gamma": 2},
+    # État VEV pompes
+    "vev_pompes": {"Alpha": "Oui (2 pompes récup.)", "Béta": "Non", "Gamma": "Oui (2 pompes récup.)"},
+    # Ballon ECS : volume (litres) et calorifugé
+    "ballon_ecs_L":       {"Alpha": 1000, "Béta": 1000, "Gamma": 1500},
+    "ballon_calorifuge":  {"Alpha": "Oui", "Béta": "NON ⚠️", "Gamma": "Oui"},
+    # Objectif après actions (−39,2 % sur GN, optimisation pompes)
+    "gaz_objectif_nm3": {"Alpha": 0, "Béta": 168_954, "Gamma": 0},
+}
+
+# ── EAU GLACÉE ──────────────────────────────────────────────────────────────
+EG_ZONES = {
+    "source": {
+        "Alpha": "2 GEG Carrier 30XA (391 kW + 274 kW) + Récup. TRI (absorbeur)",
+        "Béta":  "2 GEG Carrier 30XB (393 kW + 393 kW) + Récup. TRI (absorbeur)",
+        "Gamma": "2 GEG Carrier 30XA (503 kW + 503 kW) + Récup. TRI (absorbeur)",
+    },
+    # Puissance frigorifique installée GEG (kW)
+    "pu_geg_kw": {"Alpha": 665,  "Béta": 786,  "Gamma": 1006},
+    # Puissance frigorifique récupération TRI absorbeur (kW) — répartition 3 zones
+    "pu_absorption_kw": {"Alpha": 211,  "Béta": 211,  "Gamma": 213},
+    # Puissance totale disponible (kW)
+    "pu_totale_kw": {"Alpha": 876,  "Béta": 997,  "Gamma": 1219},
+    # Température départ eau glacée (°C)
+    "T_depart_eg_c": {"Alpha": 6, "Béta": 6, "Gamma": 6},
+    # Température retour eau glacée (°C)
+    "T_retour_eg_c": {"Alpha": 12, "Béta": 12, "Gamma": 12},
+    # EER moyen des GEG
+    "EER_moyen": {"Alpha": 3.08, "Béta": 3.22, "Gamma": 3.24},
+    # Consommation électrique GEG (kWh/an) — audit tableau 43
+    "energie_geg_kwh": {"Alpha": 755_955, "Béta": 371_177, "Gamma": 279_603},
+    # Consommation électrique pompes EG (kWh/an)
+    "energie_pompes_kwh": {"Alpha": 105_558, "Béta": 96_737, "Gamma": 99_566},
+    # Nombre de pompes installées / en service
+    "pompes_installees": {"Alpha": 3, "Béta": 3, "Gamma": 2},
+    "pompes_service":    {"Alpha": 3, "Béta": 3, "Gamma": 2},  # ⚠️ toutes en marche !
+    # VEV pompes
+    "vev_pompes": {"Alpha": "Non ⚠️", "Béta": "Non ⚠️", "Gamma": "Non ⚠️"},
+    # État V3V régulation dans les CTA
+    "v3v_etat": {
+        "Alpha": "Majorité by-passées ⚠️",
+        "Béta":  "Majorité by-passées ⚠️",
+        "Gamma": "Quelques défaillances",
+    },
+    # Objectifs après actions (−17,6% élec GEG + pompes)
+    "energie_geg_obj_kwh":    {"Alpha": 623_162, "Béta": 306_120, "Gamma": 230_481},
+    "energie_pompes_obj_kwh": {"Alpha":  87_080, "Béta":  79_764, "Gamma":  82_082},
+    # Recommandations principales
+    "recommandations": {
+        "Alpha": "Unifier HMT pompes, asservir selon besoin, relever T consigne EG en hiver, réhabiliter V3V",
+        "Béta":  "Uniformiser pompes parallèles (HMT différentes), installer VEV, relever T consigne",
+        "Gamma": "Fermer vannes GEG à l'arrêt, VEV pompes, supervision temps réel",
+    },
+}
+
 COULEURS_USAGE = {
     "CTA":              "#0077b6",
     "GEG (froid)":      "#a0e878",
@@ -818,6 +1000,7 @@ with tab5:
       <div style="font-size:12px;color:#4d7fa8;margin-top:6px;">
         Source : Rapport d'audit énergétique ADWYA 2025 — Tableau 43 &amp; 44
         &nbsp;&middot;&nbsp; Référence année 2024
+        &nbsp;&middot;&nbsp; Suivi mensuel : mai 2024 → mars 2026 (23 mois)
         &nbsp;&middot;&nbsp; Objectifs issus du plan d'actions (&#8722;17,6% élec / &#8722;39,2% GN)
       </div>
     </div>
@@ -1157,8 +1340,602 @@ with tab5:
     )
     st.plotly_chart(fig_ipe, use_container_width=True)
 
-    # ── E. POTENTIEL D'ÉCONOMIES PAR ZONE ───────────────────────────────────
-    st.markdown('<div class="sec-hdr">E — Potentiel d\'économies par zone</div>',
+    # ── E. EAU CHAUDE PAR ZONE ──────────────────────────────────────────────
+    st.markdown('<div class="sec-hdr">E — Eau Chaude (EC) par zone</div>', unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="font-size:12px;color:#4d7fa8;margin-bottom:14px;padding:8px 12px;
+                background:#0b1929;border-radius:6px;border:1px solid #162030;">
+      <strong>Source :</strong> Audit ADWYA 2025 — Sections 3-6, Tableau 43 &amp; 44.
+      Données 2024. La zone <strong>Béta</strong> est la seule sans récupération
+      de chaleur depuis la trigénération.
+    </div>""", unsafe_allow_html=True)
+
+    # KPI cards EC
+    ec_cols = st.columns(len(zones_choisies))
+    for i, z in enumerate(zones_choisies):
+        pu_ch  = EC_ZONES["pu_chaudiere_kw"][z]
+        pu_rec = EC_ZONES["pu_recuperation_kw"][z]
+        besoin = EC_ZONES["besoin_reel_kw"][z]
+        bal_cl = EC_ZONES["ballon_calorifuge"][z]
+        cls_b  = "" if bal_cl == "Oui" else "warn"
+        ec_cols[i].markdown(f"""
+        <div class="kpi-card {cls_b}">
+          <div style="height:3px;background:{COULEURS_ZONE[z]};
+                      margin:-16px -18px 12px;border-radius:8px 8px 0 0;"></div>
+          <div class="kpi-label">Zone {z} — Eau Chaude</div>
+          <div class="kpi-value">{pu_ch} <span class="kpi-unit">kW chaudière</span></div>
+          <div class="kpi-delta delta-neu">Récup. TRI : {pu_rec} kW</div>
+          <div class="kpi-delta delta-neu">Besoin réel : {besoin} kW</div>
+          <div class="kpi-delta {'delta-pos' if bal_cl=='Oui' else 'delta-neg'}">
+            Ballon ECS {EC_ZONES['ballon_ecs_L'][z]} L — {bal_cl}
+          </div>
+          <div class="kpi-delta delta-neu" style="font-size:11px;margin-top:4px;">
+            VEV pompes : {EC_ZONES['vev_pompes'][z]}
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    # Graphiques EC
+    eg_row1_c1, eg_row1_c2 = st.columns(2)
+
+    with eg_row1_c1:
+        # Puissances disponibles vs besoins
+        fig_ec_pu = go.Figure()
+        fig_ec_pu.add_trace(go.Bar(
+            name="Puissance chaudière (kW)",
+            x=zones_choisies,
+            y=[EC_ZONES["pu_chaudiere_kw"][z] for z in zones_choisies],
+            marker_color="#ffd200", opacity=0.85,
+            text=[f"{EC_ZONES['pu_chaudiere_kw'][z]} kW" for z in zones_choisies],
+            textposition="inside",
+        ))
+        fig_ec_pu.add_trace(go.Bar(
+            name="Puissance récup. TRI (kW)",
+            x=zones_choisies,
+            y=[EC_ZONES["pu_recuperation_kw"][z] for z in zones_choisies],
+            marker_color="#f7971e", opacity=0.85,
+            text=[f"{EC_ZONES['pu_recuperation_kw'][z]} kW" for z in zones_choisies],
+            textposition="inside",
+        ))
+        fig_ec_pu.add_trace(go.Scatter(
+            name="Besoin réel (kW)",
+            x=zones_choisies,
+            y=[EC_ZONES["besoin_reel_kw"][z] for z in zones_choisies],
+            mode="markers+text",
+            marker=dict(symbol="diamond", size=12, color="#e63946"),
+            text=[f"Besoin: {EC_ZONES['besoin_reel_kw'][z]} kW" for z in zones_choisies],
+            textposition="top center",
+        ))
+        fig_ec_pu.update_layout(
+            barmode="group",
+            title="Puissance EC installée vs besoins réels (kW)",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="kW", height=320,
+            margin=dict(l=50,r=20,t=40,b=40),
+            legend=dict(bgcolor="#0b1929", font_size=11),
+        )
+        st.plotly_chart(fig_ec_pu, use_container_width=True)
+
+    with eg_row1_c2:
+        # Gaz naturel chaudière EC réel vs objectif
+        gaz_ec_reel = [EC_ZONES["gaz_chaudiere_nm3"][z] / 1000 for z in zones_choisies]
+        gaz_ec_obj  = [EC_ZONES["gaz_objectif_nm3"][z]  / 1000 for z in zones_choisies]
+        fig_ec_gaz = go.Figure()
+        fig_ec_gaz.add_trace(go.Bar(
+            name="Gaz chaudière EC — Réel 2024 (kNm³)",
+            x=zones_choisies,
+            y=gaz_ec_reel,
+            marker_color=[COULEURS_ZONE[z] for z in zones_choisies],
+            text=[f"{v:.1f} kNm³" for v in gaz_ec_reel],
+            textposition="outside", opacity=0.9,
+        ))
+        fig_ec_gaz.add_trace(go.Bar(
+            name="Objectif (−39,2%)",
+            x=zones_choisies,
+            y=gaz_ec_obj,
+            marker_color=[COULEURS_ZONE[z] for z in zones_choisies],
+            text=[f"{v:.1f} kNm³" for v in gaz_ec_obj],
+            textposition="outside", opacity=0.4, marker_pattern_shape="x",
+        ))
+        fig_ec_gaz.update_layout(
+            barmode="group",
+            title="Consommation gaz chaudières EC — Réel vs Objectif",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="kNm³/an", height=320,
+            margin=dict(l=50,r=20,t=40,b=40),
+            legend=dict(bgcolor="#0b1929", font_size=11),
+        )
+        st.plotly_chart(fig_ec_gaz, use_container_width=True)
+
+    # Tableau récap EC
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Tableau récapitulatif — Eau Chaude</div>',
+                unsafe_allow_html=True)
+    rows_ec_tab = []
+    for z in zones_choisies:
+        rec_kwh = EC_ZONES["energie_recuperee_kwh"][z]
+        gaz_nm3 = EC_ZONES["gaz_chaudiere_nm3"][z]
+        gaz_obj = EC_ZONES["gaz_objectif_nm3"][z]
+        rows_ec_tab.append({
+            "Zone": z,
+            "Source principale": EC_ZONES["source"][z][:55] + "...",
+            "Pu chaudière (kW)": EC_ZONES["pu_chaudiere_kw"][z],
+            "Pu récup. TRI (kW)": EC_ZONES["pu_recuperation_kw"][z],
+            "Besoin réel (kW)": EC_ZONES["besoin_reel_kw"][z],
+            "T départ (°C)": EC_ZONES["T_depart_c"][z],
+            "T retour (°C)": EC_ZONES["T_retour_c"][z],
+            "Gaz réel 2024 (kNm³)": f"{gaz_nm3/1000:.1f}",
+            "Gaz objectif (kNm³)": f"{gaz_obj/1000:.1f}",
+            "Gain gaz (kNm³)": f"{(gaz_nm3-gaz_obj)/1000:.1f}",
+            "Récup. TRI estimée (MWh)": f"{rec_kwh/1000:.0f}",
+            "Pompes inst./serv.": f"{EC_ZONES['pompes_installees'][z]}/{EC_ZONES['pompes_service'][z]}",
+            "VEV pompes": EC_ZONES["vev_pompes"][z],
+            "Ballon ECS": f"{EC_ZONES['ballon_ecs_L'][z]} L — {EC_ZONES['ballon_calorifuge'][z]}",
+        })
+    df_ec_tab = pd.DataFrame(rows_ec_tab)
+    st.dataframe(df_ec_tab, use_container_width=True, hide_index=True)
+
+    # Alertes EC
+    st.markdown("""
+    <div style="background:#0b1929;border:1px solid #1b3352;border-radius:8px;
+                padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:700;color:#f7971e;margin-bottom:8px;">
+        ⚠️ Points de vigilance — Eau Chaude
+      </div>
+      <div class="arow-yel"><strong>Zone Béta :</strong>
+        Aucune récupération de chaleur depuis la trigénération.
+        La chaudière VIADRUS G700 (400 kW) consomme 277 860 Nm³/an seule.
+        Extension de récupération recommandée → économie estimée ≈ 159 771 DT/an.
+      </div>
+      <div class="arow-yel"><strong>Zone Béta :</strong>
+        Ballon ECS 1 000 L <em>non calorifugé</em> → pertes thermiques significatives.
+        Action immédiate : calorifugeage.
+      </div>
+      <div class="arow-yel"><strong>Zones Alpha &amp; Gamma :</strong>
+        Les énergimètres de récupération comptabilisent aussi l'énergie produite par
+        les chaudières lors de leur fonctionnement → biais de mesure. Prévoir
+        électrovannes de sectionnement.
+      </div>
+      <div class="arow-yel"><strong>Zone Alpha :</strong>
+        Circuit ECS complexe (3 sources primaires). Simplification et réhabilitation recommandées.
+      </div>
+    </div>""", unsafe_allow_html=True)
+
+    # ── F. EAU GLACÉE PAR ZONE ──────────────────────────────────────────────
+    st.markdown('<div class="sec-hdr">F — Eau Glacée (EG) par zone</div>', unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="font-size:12px;color:#4d7fa8;margin-bottom:14px;padding:8px 12px;
+                background:#0b1929;border-radius:6px;border:1px solid #162030;">
+      <strong>Source :</strong> Audit ADWYA 2025 — Section 3-5, Tableau 43.
+      La puissance absorption (TRI) de 635 kW est partagée entre les 3 zones.
+      <strong>Problème majeur :</strong> la puissance réelle délivrée par l'absorbeur est
+      de seulement ~261 kW (au lieu des 802 kW nominaux) en raison de défauts hydrauliques.
+    </div>""", unsafe_allow_html=True)
+
+    # KPI cards EG
+    eg_kpi_cols = st.columns(len(zones_choisies))
+    for i, z in enumerate(zones_choisies):
+        pu_geg  = EG_ZONES["pu_geg_kw"][z]
+        pu_abs  = EG_ZONES["pu_absorption_kw"][z]
+        eer     = EG_ZONES["EER_moyen"][z]
+        v3v_ok  = "défaillances" in EG_ZONES["v3v_etat"][z].lower() or "by-passées" in EG_ZONES["v3v_etat"][z].lower()
+        cls_eg  = "alert" if v3v_ok else ""
+        conso_geg = EG_ZONES["energie_geg_kwh"][z]
+        conso_obj = EG_ZONES["energie_geg_obj_kwh"][z]
+        gain_eg_pct = (conso_geg - conso_obj) / conso_geg * 100
+        eg_kpi_cols[i].markdown(f"""
+        <div class="kpi-card {cls_eg}">
+          <div style="height:3px;background:{COULEURS_ZONE[z]};
+                      margin:-16px -18px 12px;border-radius:8px 8px 0 0;"></div>
+          <div class="kpi-label">Zone {z} — Eau Glacée</div>
+          <div class="kpi-value">{pu_geg} <span class="kpi-unit">kW GEG</span></div>
+          <div class="kpi-delta delta-neu">+ {pu_abs} kW absorption TRI</div>
+          <div class="kpi-delta delta-neu">EER moyen : {eer:.2f}</div>
+          <div class="kpi-delta delta-neu">Conso GEG : {conso_geg/1000:.0f} MWh/an</div>
+          <div class="kpi-delta delta-pos">Objectif : {conso_obj/1000:.0f} MWh/an (&#8722;{gain_eg_pct:.1f}%)</div>
+          <div class="kpi-delta {'delta-neg' if v3v_ok else 'delta-pos'}" style="font-size:11px;margin-top:4px;">
+            V3V : {EG_ZONES['v3v_etat'][z]}
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    # Graphiques EG — ligne 1
+    eg_g1c1, eg_g1c2 = st.columns(2)
+
+    with eg_g1c1:
+        # Puissances frigorifiques installées
+        fig_eg_pu = go.Figure()
+        fig_eg_pu.add_trace(go.Bar(
+            name="GEG (kW)",
+            x=zones_choisies,
+            y=[EG_ZONES["pu_geg_kw"][z] for z in zones_choisies],
+            marker_color="#a0e878", opacity=0.85,
+            text=[f"{EG_ZONES['pu_geg_kw'][z]} kW" for z in zones_choisies],
+            textposition="inside",
+        ))
+        fig_eg_pu.add_trace(go.Bar(
+            name="Absorption TRI (kW)",
+            x=zones_choisies,
+            y=[EG_ZONES["pu_absorption_kw"][z] for z in zones_choisies],
+            marker_color="#48cae4", opacity=0.85,
+            text=[f"{EG_ZONES['pu_absorption_kw'][z]} kW" for z in zones_choisies],
+            textposition="inside",
+        ))
+        fig_eg_pu.add_trace(go.Scatter(
+            name="⚠️ Absorption réelle actuelle (261 kW total)",
+            x=zones_choisies,
+            y=[87, 87, 87],  # 261 kW / 3 zones
+            mode="lines+markers",
+            line=dict(color="#e63946", dash="dot", width=2),
+            marker=dict(symbol="x", size=10, color="#e63946"),
+        ))
+        fig_eg_pu.update_layout(
+            barmode="stack",
+            title="Puissance frigorifique installée (kW) — GEG + Absorption",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="kW", height=320,
+            margin=dict(l=50,r=20,t=40,b=40),
+            legend=dict(bgcolor="#0b1929", font_size=11),
+        )
+        st.plotly_chart(fig_eg_pu, use_container_width=True)
+
+    with eg_g1c2:
+        # Consommation électrique GEG + pompes réel vs objectif
+        fig_eg_elec = go.Figure()
+        fig_eg_elec.add_trace(go.Bar(
+            name="GEG — Réel 2024",
+            x=zones_choisies,
+            y=[EG_ZONES["energie_geg_kwh"][z] / 1000 for z in zones_choisies],
+            marker_color=[COULEURS_ZONE[z] for z in zones_choisies],
+            text=[f"{EG_ZONES['energie_geg_kwh'][z]/1000:.0f} MWh" for z in zones_choisies],
+            textposition="outside", opacity=0.9,
+        ))
+        fig_eg_elec.add_trace(go.Bar(
+            name="GEG — Objectif",
+            x=zones_choisies,
+            y=[EG_ZONES["energie_geg_obj_kwh"][z] / 1000 for z in zones_choisies],
+            marker_color=[COULEURS_ZONE[z] for z in zones_choisies],
+            text=[f"{EG_ZONES['energie_geg_obj_kwh'][z]/1000:.0f} MWh" for z in zones_choisies],
+            textposition="outside", opacity=0.4, marker_pattern_shape="x",
+        ))
+        fig_eg_elec.update_layout(
+            barmode="group",
+            title="Consommation électrique GEG — Réel vs Objectif (MWh/an)",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="MWh/an", height=320,
+            margin=dict(l=50,r=20,t=40,b=40),
+            legend=dict(bgcolor="#0b1929", font_size=11),
+        )
+        st.plotly_chart(fig_eg_elec, use_container_width=True)
+
+    # Graphiques EG — ligne 2
+    eg_g2c1, eg_g2c2 = st.columns(2)
+
+    with eg_g2c1:
+        # Pompes EG réel vs objectif
+        fig_peg = go.Figure()
+        fig_peg.add_trace(go.Bar(
+            name="Pompes EG — Réel 2024",
+            x=zones_choisies,
+            y=[EG_ZONES["energie_pompes_kwh"][z] / 1000 for z in zones_choisies],
+            marker_color="#48cae4", opacity=0.85,
+            text=[f"{EG_ZONES['energie_pompes_kwh'][z]/1000:.0f} MWh" for z in zones_choisies],
+            textposition="outside",
+        ))
+        fig_peg.add_trace(go.Bar(
+            name="Pompes EG — Objectif",
+            x=zones_choisies,
+            y=[EG_ZONES["energie_pompes_obj_kwh"][z] / 1000 for z in zones_choisies],
+            marker_color="#48cae4", opacity=0.4, marker_pattern_shape="x",
+            text=[f"{EG_ZONES['energie_pompes_obj_kwh'][z]/1000:.0f} MWh" for z in zones_choisies],
+            textposition="outside",
+        ))
+        fig_peg.update_layout(
+            barmode="group",
+            title="Consommation pompes EG — Réel vs Objectif (MWh/an)",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="MWh/an", height=290,
+            margin=dict(l=50,r=20,t=40,b=40),
+            legend=dict(bgcolor="#0b1929", font_size=11),
+        )
+        st.plotly_chart(fig_peg, use_container_width=True)
+
+    with eg_g2c2:
+        # Part GEG + pompes dans la facture usine
+        total_eg_reel = sum(
+            EG_ZONES["energie_geg_kwh"][z] + EG_ZONES["energie_pompes_kwh"][z]
+            for z in ZONES
+        )
+        labels_pie = []
+        vals_pie   = []
+        cols_pie   = []
+        for z in zones_choisies:
+            labels_pie.append(f"GEG {z}")
+            vals_pie.append(EG_ZONES["energie_geg_kwh"][z])
+            cols_pie.append(COULEURS_ZONE[z])
+            labels_pie.append(f"Pompes {z}")
+            vals_pie.append(EG_ZONES["energie_pompes_kwh"][z])
+            cols_pie.append(COULEURS_ZONE[z])
+        fig_pie_eg = px.pie(
+            names=labels_pie, values=vals_pie,
+            color_discrete_sequence=cols_pie,
+            hole=0.50, title="Répartition consommation EG + Pompes par zone",
+        )
+        fig_pie_eg.update_traces(
+            textposition="outside", textinfo="label+percent",
+            hovertemplate="<b>%{label}</b><br>%{value:,.0f} kWh<extra></extra>",
+        )
+        fig_pie_eg.update_layout(
+            template="plotly_dark", paper_bgcolor="#070e1a",
+            height=290, margin=dict(l=20,r=20,t=40,b=20), showlegend=False,
+        )
+        st.plotly_chart(fig_pie_eg, use_container_width=True)
+
+    # Tableau récap EG
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Tableau récapitulatif — Eau Glacée</div>',
+                unsafe_allow_html=True)
+    rows_eg_tab = []
+    for z in zones_choisies:
+        geg_kwh   = EG_ZONES["energie_geg_kwh"][z]
+        geg_obj   = EG_ZONES["energie_geg_obj_kwh"][z]
+        peg_kwh   = EG_ZONES["energie_pompes_kwh"][z]
+        peg_obj   = EG_ZONES["energie_pompes_obj_kwh"][z]
+        total_kwh = geg_kwh + peg_kwh
+        total_obj = geg_obj + peg_obj
+        rows_eg_tab.append({
+            "Zone": z,
+            "GEG installés": f"{EG_ZONES['pu_geg_kw'][z]} kW ({EG_ZONES['pompes_installees'][z]} GEG)",
+            "Puissance absorption TRI (kW)": EG_ZONES["pu_absorption_kw"][z],
+            "T départ / retour (°C)": f"{EG_ZONES['T_depart_eg_c'][z]}°C / {EG_ZONES['T_retour_eg_c'][z]}°C",
+            "EER moyen": EG_ZONES["EER_moyen"][z],
+            "Conso GEG réel (MWh/an)": round(geg_kwh / 1000, 1),
+            "Conso GEG objectif (MWh/an)": round(geg_obj / 1000, 1),
+            "Gain GEG (MWh/an)": round((geg_kwh - geg_obj) / 1000, 1),
+            "Conso pompes réel (MWh/an)": round(peg_kwh / 1000, 1),
+            "Conso pompes objectif (MWh/an)": round(peg_obj / 1000, 1),
+            "Total réel (MWh/an)": round(total_kwh / 1000, 1),
+            "Total objectif (MWh/an)": round(total_obj / 1000, 1),
+            "Gain total (%)": f"{(total_kwh-total_obj)/total_kwh*100:.1f}%",
+            "V3V CTA": EG_ZONES["v3v_etat"][z],
+            "VEV pompes": EG_ZONES["vev_pompes"][z],
+        })
+    df_eg_tab = pd.DataFrame(rows_eg_tab)
+    st.dataframe(df_eg_tab, use_container_width=True, hide_index=True)
+
+    # Recommandations EG par zone
+    st.markdown("""
+    <div style="background:#0b1929;border:1px solid #1b3352;border-radius:8px;
+                padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:700;color:#a0e878;margin-bottom:10px;">
+        ✅ Recommandations — Eau Glacée par zone
+      </div>""", unsafe_allow_html=True)
+
+    zone_css = {"Alpha": "zone-alpha", "Béta": "zone-beta", "Gamma": "zone-gamma"}
+    for z in zones_choisies:
+        rec_txt = EG_ZONES["recommandations"][z]
+        geg_kwh = EG_ZONES["energie_geg_kwh"][z]
+        geg_obj = EG_ZONES["energie_geg_obj_kwh"][z]
+        gain_dt = (geg_kwh - geg_obj) * prix_kwh_steg
+        st.markdown(f"""
+      <div class="{zone_css[z]}" style="margin-bottom:10px;padding:8px 14px;
+                   background:#0d1b2e;border-radius:6px;">
+        <strong style="color:{COULEURS_ZONE[z]};">Zone {z}</strong> &nbsp;—&nbsp;
+        {rec_txt}
+        <br><span style="color:#2dc653;font-size:12px;">
+          💰 Gain potentiel : {(geg_kwh-geg_obj)/1000:.0f} MWh/an
+          ≈ {gain_dt:,.0f} DT/an
+        </span>
+      </div>""", unsafe_allow_html=True)
+
+    # Point critique absorbeur
+    st.markdown("""
+      <div class="arow-red">
+        <strong>🔴 CRITIQUE — Machine à absorption (TRI) :</strong>
+        Puissance nominale 802 kW — Puissance réelle mesurée ~261 kW (déc. 2024).
+        Cause identifiée : débit eau de tour insuffisant (150 m³/h vs 230 m³/h nominal),
+        pertes de charge réseau élevées, tamis colmaté.
+        <br>Action prioritaire : redimensionner pompe eau tour, enlever tamis et
+        détecter fuites hydrauliques côté tour et eau glacée.
+      </div>
+    </div>""", unsafe_allow_html=True)
+
+    # ── H. ÉNERGIE FROID PRODUIT & RÉCUPÉRÉE MENSUELLE PAR ZONE ────────────
+    st.markdown('<div class="sec-hdr">H — Énergie froid produit &amp; récupérée mensuelle par zone</div>',
+                unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="font-size:12px;color:#4d7fa8;margin-bottom:14px;padding:8px 12px;
+                background:#0b1929;border-radius:6px;border:1px solid #162030;">
+      <strong>Source :</strong> Suivi_trigénération.xlsx — Feuille Centrale — Dataset complet combiné : mai 2024 → mars 2026 (23 mois).<br>
+      <strong>Froid produit</strong> (absorbeur TRI) : valeur globale répartie équitablement entre les 3 zones (≈33% chacune).
+      <strong>Énergie récupérée</strong> : données réelles par zone — EC Alpha, EC Alpha Sanitaire, EC Gamma.
+      La zone <strong>Béta</strong> ne bénéficie d'aucune récupération directe depuis la trigénération.
+    </div>""", unsafe_allow_html=True)
+
+    # KPI cumulés
+    h_kpi1, h_kpi2, h_kpi3, h_kpi4 = st.columns(4)
+    total_froid_mz  = df_zone_monthly["froid_total_kwh"].sum()
+    total_rec_alpha = df_zone_monthly["ec_alpha_total_kwh"].sum()
+    total_rec_gamma = df_zone_monthly["ec_gamma_total_kwh"].sum()
+    total_rec_chil  = df_zone_monthly["ec_chiller_kwh"].sum()
+
+    h_kpi1.markdown(f"""<div class="kpi-card">
+      <div class="kpi-label">Froid total produit</div>
+      <div class="kpi-value">{total_froid_mz/1e6:.2f}<span class="kpi-unit"> GWh</span></div>
+      <div class="kpi-delta delta-neu">Mai 2024 → Mars 2026 (23 mois)</div>
+    </div>""", unsafe_allow_html=True)
+    h_kpi2.markdown(f"""<div class="kpi-card">
+      <div class="kpi-label">Récup. Zone Alpha (EC+ECS)</div>
+      <div class="kpi-value">{total_rec_alpha/1e6:.2f}<span class="kpi-unit"> GWh</span></div>
+      <div class="kpi-delta delta-pos">EC : {df_zone_monthly['ec_alpha_kwh'].sum()/1000:.0f} MWh + ECS : {df_zone_monthly['ec_alpha_sani_kwh'].sum()/1000:.0f} MWh</div>
+    </div>""", unsafe_allow_html=True)
+    h_kpi3.markdown(f"""<div class="kpi-card">
+      <div class="kpi-label">Récup. Zone Gamma</div>
+      <div class="kpi-value">{total_rec_gamma/1e6:.2f}<span class="kpi-unit"> GWh</span></div>
+      <div class="kpi-delta delta-pos">Circuit EC Gamma (600 kW nominal)</div>
+    </div>""", unsafe_allow_html=True)
+    h_kpi4.markdown(f"""<div class="kpi-card warn">
+      <div class="kpi-label">Récup. vers absorbeur</div>
+      <div class="kpi-value">{total_rec_chil/1e6:.2f}<span class="kpi-unit"> GWh</span></div>
+      <div class="kpi-delta delta-neu">Chaleur vers machine absorption</div>
+    </div>""", unsafe_allow_html=True)
+
+    # Évolution mensuelle froid
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Froid produit mensuel par zone (répartition estimée)</div>',
+                unsafe_allow_html=True)
+    fig_froid_mz = go.Figure()
+    for z, col_f, col_z in [
+        ("Alpha", "froid_alpha_kwh", "#00b4d8"),
+        ("Béta",  "froid_beta_kwh",  "#f7971e"),
+        ("Gamma", "froid_gamma_kwh", "#a0e878"),
+    ]:
+        if z in zones_choisies:
+            fig_froid_mz.add_trace(go.Bar(
+                name=f"Zone {z}",
+                x=df_zone_monthly["mois"],
+                y=df_zone_monthly[col_f] / 1000,
+                marker_color=col_z, opacity=0.85,
+                hovertemplate=f"<b>Zone {z}</b><br>%{{x}}<br>%{{y:.1f}} MWh<extra></extra>",
+            ))
+    fig_froid_mz.update_layout(
+        barmode="stack",
+        title="Froid produit mensuel (MWh) — répartition ≈33%/33%/34% entre zones",
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="MWh", height=310,
+        margin=dict(l=50, r=20, t=40, b=60),
+        legend=dict(bgcolor="#0b1929", font_size=11),
+        xaxis=dict(tickangle=-45),
+    )
+    st.plotly_chart(fig_froid_mz, use_container_width=True)
+
+    # Récupération par zone
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Énergie thermique récupérée mensuelle par zone</div>',
+                unsafe_allow_html=True)
+    h3c1, h3c2 = st.columns(2)
+
+    with h3c1:
+        fig_rec_zones = go.Figure()
+        if "Alpha" in zones_choisies:
+            fig_rec_zones.add_trace(go.Scatter(
+                x=df_zone_monthly["mois"], y=df_zone_monthly["ec_alpha_kwh"] / 1000,
+                mode="lines+markers", name="EC Alpha",
+                line=dict(color="#00b4d8", width=2), marker=dict(size=7),
+                hovertemplate="<b>EC Alpha</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+            ))
+            fig_rec_zones.add_trace(go.Scatter(
+                x=df_zone_monthly["mois"], y=df_zone_monthly["ec_alpha_sani_kwh"] / 1000,
+                mode="lines+markers", name="ECS Alpha",
+                line=dict(color="#48cae4", width=1.5, dash="dot"), marker=dict(size=6),
+                hovertemplate="<b>ECS Alpha</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+            ))
+        if "Gamma" in zones_choisies:
+            fig_rec_zones.add_trace(go.Scatter(
+                x=df_zone_monthly["mois"], y=df_zone_monthly["ec_gamma_total_kwh"] / 1000,
+                mode="lines+markers", name="EC Gamma",
+                line=dict(color="#a0e878", width=2), marker=dict(size=7),
+                hovertemplate="<b>EC Gamma</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+            ))
+        if "Béta" in zones_choisies:
+            fig_rec_zones.add_trace(go.Scatter(
+                x=df_zone_monthly["mois"], y=[0] * len(df_zone_monthly),
+                mode="lines", name="Zone Béta (0 — sans récup.)",
+                line=dict(color="#f7971e", width=1, dash="dash"),
+            ))
+        fig_rec_zones.update_layout(
+            title="Récupération thermique par zone (MWh/mois)",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="MWh", height=310,
+            margin=dict(l=50, r=20, t=40, b=60),
+            legend=dict(bgcolor="#0b1929", font_size=11),
+            xaxis=dict(tickangle=-45),
+        )
+        st.plotly_chart(fig_rec_zones, use_container_width=True)
+
+    with h3c2:
+        fig_rec_stack = go.Figure()
+        if "Alpha" in zones_choisies:
+            fig_rec_stack.add_trace(go.Bar(
+                name="Récup. Alpha (EC+ECS)",
+                x=df_zone_monthly["mois"], y=df_zone_monthly["ec_alpha_total_kwh"] / 1000,
+                marker_color="#00b4d8", opacity=0.85,
+                hovertemplate="<b>Récup. Alpha</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+            ))
+        if "Gamma" in zones_choisies:
+            fig_rec_stack.add_trace(go.Bar(
+                name="Récup. Gamma",
+                x=df_zone_monthly["mois"], y=df_zone_monthly["ec_gamma_total_kwh"] / 1000,
+                marker_color="#a0e878", opacity=0.85,
+                hovertemplate="<b>Récup. Gamma</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+            ))
+        fig_rec_stack.add_trace(go.Bar(
+            name="Vers absorbeur (chiller)",
+            x=df_zone_monthly["mois"], y=df_zone_monthly["ec_chiller_kwh"] / 1000,
+            marker_color="#9b72cf", opacity=0.7,
+            hovertemplate="<b>Vers chiller</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+        ))
+        fig_rec_stack.update_layout(
+            barmode="stack", title="Répartition mensuelle récupération (MWh)",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="MWh", height=310,
+            margin=dict(l=50, r=20, t=40, b=60),
+            legend=dict(bgcolor="#0b1929", font_size=11),
+            xaxis=dict(tickangle=-45),
+        )
+        st.plotly_chart(fig_rec_stack, use_container_width=True)
+
+    # Froid vs Récupération — vue globale
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Froid produit vs Récupération thermique totale</div>',
+                unsafe_allow_html=True)
+    fig_fvr = go.Figure()
+    fig_fvr.add_trace(go.Scatter(
+        x=df_zone_monthly["mois"], y=df_zone_monthly["froid_total_kwh"] / 1000,
+        mode="lines+markers", name="Froid produit (absorption)",
+        line=dict(color="#a0e878", width=2.5), marker=dict(size=8),
+        fill="tozeroy", fillcolor="rgba(160,232,120,0.08)",
+        hovertemplate="<b>Froid</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+    ))
+    fig_fvr.add_trace(go.Scatter(
+        x=df_zone_monthly["mois"], y=df_zone_monthly["rec_totale_kwh"] / 1000,
+        mode="lines+markers", name="Récupération thermique totale",
+        line=dict(color="#f7971e", width=2.5), marker=dict(size=8),
+        fill="tozeroy", fillcolor="rgba(247,151,30,0.08)",
+        hovertemplate="<b>Récup. totale</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+    ))
+    fig_fvr.update_layout(
+        title="Froid produit vs Récupération thermique totale (MWh/mois)",
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="MWh", height=290,
+        margin=dict(l=50, r=20, t=40, b=60),
+        legend=dict(bgcolor="#0b1929", font_size=12),
+        xaxis=dict(tickangle=-45),
+    )
+    st.plotly_chart(fig_fvr, use_container_width=True)
+
+    # Tableau récapitulatif mensuel
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Tableau mensuel — Froid &amp; Récupération par zone</div>',
+                unsafe_allow_html=True)
+    df_h_tab = df_zone_monthly[[
+        "mois", "froid_total_kwh",
+        "ec_alpha_kwh", "ec_alpha_sani_kwh", "ec_alpha_total_kwh",
+        "ec_gamma_total_kwh", "ec_chiller_kwh", "rec_totale_kwh"
+    ]].copy()
+    df_h_tab.columns = [
+        "Mois", "Froid produit (kWh)",
+        "EC Alpha (kWh)", "ECS Alpha (kWh)", "Récup. Alpha total (kWh)",
+        "Récup. Gamma (kWh)", "Vers absorbeur (kWh)", "Récup. totale (kWh)"
+    ]
+    for c in df_h_tab.columns[1:]:
+        df_h_tab[c] = df_h_tab[c].apply(lambda x: f"{int(x):,}" if pd.notna(x) and x > 0 else "0")
+    st.dataframe(df_h_tab, use_container_width=True, hide_index=True)
+
+    st.markdown("""
+    <div class="arow-yel" style="margin-top:10px;">
+      <strong>⚠️ Zone Béta :</strong> Aucune énergie thermique récupérée depuis la trigénération.
+      La chaudière EC VIADRUS G700 (400 kW) assure seule les besoins en eau chaude (277 860 Nm³/an).
+      <strong>Action recommandée :</strong> raccorder la zone Béta au circuit TRI → économie estimée ~80 000 DT/an.
+    </div>""", unsafe_allow_html=True)
+
+    # ── G. POTENTIEL D'ÉCONOMIES PAR ZONE ───────────────────────────────────
+    st.markdown('<div class="sec-hdr">G — Potentiel d\'économies par zone</div>',
                 unsafe_allow_html=True)
 
     eco_rows = []
@@ -1523,6 +2300,482 @@ with tab6:
 
     </div>""", unsafe_allow_html=True)
 
+    # ── C2. EAU CHAUDE & EAU GLACÉE — RAPPORT DÉTAILLÉ PAR ZONE ───────────────
+    st.markdown('<div class="sec-hdr">C2 — Eau Chaude & Eau Glacée : Observations, Interprétations & Plan d\'action</div>',
+                unsafe_allow_html=True)
+
+    # ── C2-1 : OBSERVATIONS EAU CHAUDE ──────────────────────────────────────
+    st.markdown("""
+    <div class="rbox">
+      <h4>&#128338; 1. Observations — Eau Chaude (EC)</h4>
+
+      <div class="zone-alpha">
+        <strong>Zone Alpha</strong>
+      </div>
+      <p>
+        La zone Alpha dispose d'une chaudière à eau chaude CHAPPEE XR408 de <strong>348 kW</strong>
+        et bénéficie d'une double récupération depuis la trigénération :
+        circuit EC (300 kW) et circuit ECS sanitaire (370 kW), soit <strong>670 kW récupérables</strong>.
+        Les besoins réels estimés sont de ~300 kW. Pendant le fonctionnement de la trigénération,
+        la chaudière EC Alpha est mise à l'arrêt forcé, ce qui est favorable.
+        Cependant, le système de comptage thermal ne distingue pas l'énergie produite par la chaudière
+        de celle récupérée lorsque les deux circuits sont simultanément actifs, faussant les indicateurs.
+        Par ailleurs, le circuit ECS sanitaire est complexe (3 sources primaires : chaudière, vapeur, récupération TRI)
+        et nécessite une simplification.
+      </p>
+
+      <div class="zone-beta" style="margin-top:14px;">
+        <strong>Zone Béta</strong>
+      </div>
+      <p>
+        La zone Béta est alimentée uniquement par la chaudière VIADRUS G700 de <strong>400 kW</strong>.
+        <span class="tag-alert">AUCUNE récupération de chaleur depuis la trigénération n'est prévue pour cette zone.</span>
+        La chaudière fonctionne en continu, consommant <strong>277 860 Nm³/an</strong> de gaz naturel
+        (16,5% de la facture globale usine), soit ~159 771 DT/an.
+        Le ballon ECS de 1 000 L est <strong>non calorifugé</strong>, source de pertes thermiques supplémentaires.
+        Les conduites d'eau chaude dans la chaufferie Béta sont en majorité non calorifugées.
+      </p>
+
+      <div class="zone-gamma" style="margin-top:14px;">
+        <strong>Zone Gamma</strong>
+      </div>
+      <p>
+        La zone Gamma dispose d'une chaudière EC de <strong>291 kW</strong> et bénéficie de la récupération
+        de chaleur TRI à travers un échangeur de 600 kW. Cette récupération est la plus importante des
+        trois zones. Pendant le fonctionnement de la trigénération, la chaudière EC Gamma est à l'arrêt.
+        Le ballon ECS de 1 500 L est calorifugé, ce qui est positif.
+        Un débordement de la bâche alimentaire de la chaudière vapeur Gamma a été constaté lors de l'audit,
+        indiquant un dysfonctionnement du régulateur de niveau.
+      </p>
+
+      <h4>&#9203; 2. Interprétation — Eau Chaude</h4>
+      <ul style="line-height:2.0;">
+        <li>La puissance thermique récupérable totale depuis la TRI est de <strong>1 270 kW</strong>,
+          mais ne peut satisfaire simultanément les besoins de l'absorbeur (1 146 kW) ET de l'eau chaude
+          des zones. Le réglage à 70% vers le froid limite la chaleur disponible pour l'eau chaude.</li>
+        <li>Les besoins réels en eau chaude sont estimés à <strong>~970 kW</strong> pour les 3 zones,
+          soit supérieurs à la chaleur disponible après déduction de la part dédiée à l'absorption.
+          La gestion de la vanne 3 voies (V3V) de répartition est donc déterminante.</li>
+        <li>La zone Béta représente à elle seule <strong>36%</strong> des besoins totaux en EC
+          (~350 kW), sans aucune récupération. C'est la lacune la plus critique.</li>
+        <li>Les variations de récupération mensuelle observées (pic en hiver, creux en été et lors des pannes)
+          confirment que la TRI ne peut pas être la seule source fiable sans contrat de maintenance renforcé.</li>
+        <li>Le rendement thermique des chaudières EC est satisfaisant (~90% combustion) mais leur
+          fonctionnement à très faible charge en parallèle de la récupération dégrade l'efficacité globale.</li>
+      </ul>
+    </div>""", unsafe_allow_html=True)
+
+    # ── C2-2 : GRAPHIQUES MENSUELS EC ────────────────────────────────────────
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Énergie thermique récupérée mensuelle par zone (EC)</div>',
+                unsafe_allow_html=True)
+
+    # Filtre sur les mois sélectionnés
+    df_zm_f = df_zone_monthly[df_zone_monthly["mois"].isin(df["mois"].tolist())].copy()
+
+    fig_ec_month = go.Figure()
+    fig_ec_month.add_trace(go.Scatter(
+        x=df_zm_f["mois"], y=df_zm_f["ec_alpha_kwh"] / 1000,
+        mode="lines+markers", name="EC Alpha (circuit process)",
+        line=dict(color="#00b4d8", width=2.5), marker=dict(size=8),
+        hovertemplate="<b>EC Alpha</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+        fill="tozeroy", fillcolor="rgba(0,180,216,0.07)",
+    ))
+    fig_ec_month.add_trace(go.Scatter(
+        x=df_zm_f["mois"], y=df_zm_f["ec_alpha_sani_kwh"] / 1000,
+        mode="lines+markers", name="ECS Alpha (sanitaire)",
+        line=dict(color="#48cae4", width=1.8, dash="dot"), marker=dict(size=6),
+        hovertemplate="<b>ECS Alpha</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+    ))
+    fig_ec_month.add_trace(go.Scatter(
+        x=df_zm_f["mois"], y=df_zm_f["ec_gamma_total_kwh"] / 1000,
+        mode="lines+markers", name="EC Gamma",
+        line=dict(color="#a0e878", width=2.5), marker=dict(size=8),
+        hovertemplate="<b>EC Gamma</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+        fill="tozeroy", fillcolor="rgba(160,232,120,0.07)",
+    ))
+    fig_ec_month.add_trace(go.Scatter(
+        x=df_zm_f["mois"], y=[0] * len(df_zm_f),
+        mode="lines", name="Zone Béta — 0 (sans récup.)",
+        line=dict(color="#f7971e", width=1.5, dash="dash"),
+        hovertemplate="Zone Béta : aucune récupération<extra></extra>",
+    ))
+    fig_ec_month.update_layout(
+        title="Récupération mensuelle eau chaude par zone (MWh) — Source : données TRI réelles",
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="MWh/mois", height=340,
+        margin=dict(l=50, r=20, t=50, b=70),
+        legend=dict(bgcolor="#0b1929", font_size=11),
+        xaxis=dict(tickangle=-45),
+    )
+    st.plotly_chart(fig_ec_month, use_container_width=True)
+
+    # Histogramme empilé EC par zone
+    fig_ec_stack = go.Figure()
+    fig_ec_stack.add_trace(go.Bar(
+        name="EC + ECS Alpha", x=df_zm_f["mois"],
+        y=df_zm_f["ec_alpha_total_kwh"] / 1000,
+        marker_color="#00b4d8", opacity=0.85,
+        hovertemplate="<b>Alpha EC+ECS</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+    ))
+    fig_ec_stack.add_trace(go.Bar(
+        name="EC Gamma", x=df_zm_f["mois"],
+        y=df_zm_f["ec_gamma_total_kwh"] / 1000,
+        marker_color="#a0e878", opacity=0.85,
+        hovertemplate="<b>EC Gamma</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+    ))
+    fig_ec_stack.add_trace(go.Bar(
+        name="Vers absorbeur (chiller)", x=df_zm_f["mois"],
+        y=df_zm_f["ec_chiller_kwh"] / 1000,
+        marker_color="#9b72cf", opacity=0.75,
+        hovertemplate="<b>Vers absorbeur</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+    ))
+    fig_ec_stack.update_layout(
+        barmode="stack",
+        title="Répartition mensuelle récupération thermique — EC zones + absorbeur (MWh)",
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="MWh", height=310,
+        margin=dict(l=50, r=20, t=50, b=70),
+        legend=dict(bgcolor="#0b1929", font_size=11),
+        xaxis=dict(tickangle=-45),
+    )
+    st.plotly_chart(fig_ec_stack, use_container_width=True)
+
+    # Tableau mensuel EC
+    df_ec_tab_r = df_zone_monthly[[
+        "mois", "ec_alpha_kwh", "ec_alpha_sani_kwh", "ec_alpha_total_kwh",
+        "ec_gamma_total_kwh", "ec_chiller_kwh", "rec_totale_kwh"
+    ]].copy()
+    df_ec_tab_r.columns = [
+        "Mois", "EC Alpha (kWh)", "ECS Alpha (kWh)", "Récup. Alpha total (kWh)",
+        "Récup. Gamma (kWh)", "Vers absorbeur (kWh)", "Récup. totale (kWh)"
+    ]
+    for c in df_ec_tab_r.columns[1:]:
+        df_ec_tab_r[c] = df_ec_tab_r[c].apply(lambda x: f"{int(x):,}" if pd.notna(x) and x > 0 else "0")
+    st.markdown("**Tableau mensuel — Récupération eau chaude par zone**")
+    st.dataframe(df_ec_tab_r, use_container_width=True, hide_index=True)
+
+    st.markdown("""
+    <div class="arow-yel" style="margin-top:6px;">
+      <strong>⚠️ Zone Béta non raccordée :</strong> 277 860 Nm³/an de gaz consommés inutilement
+      pendant les heures de fonctionnement de la trigénération. Extension vers Béta estimée à
+      ~159 771 DT/an d'économies — investissement ~60 000 DT, TRB &lt; 1 an.
+    </div>
+    <div class="arow-red" style="margin-top:6px;">
+      <strong>🔴 Ballon ECS Béta non calorifugé :</strong> pertes thermiques continues estimées à
+      ~5–8% de l'énergie stockée. Calorifugation immédiate recommandée (coût ~500 DT, ROI &lt; 1 mois).
+    </div>""", unsafe_allow_html=True)
+
+    # ── C2-3 : OBSERVATIONS EAU GLACÉE ──────────────────────────────────────
+    st.markdown("""
+    <div class="rbox" style="margin-top:20px;">
+      <h4>&#10052; 3. Observations — Eau Glacée (EG)</h4>
+
+      <div class="zone-alpha">
+        <strong>Zone Alpha</strong>
+      </div>
+      <p>
+        Le circuit eau glacée Alpha comprend <strong>2 GEG Carrier 30XA</strong>
+        (391 kW + 274 kW = 665 kW) et reçoit de l'eau glacée de l'absorbeur TRI (≈ 211 kW partagé).
+        3 pompes de retour sont installées mais <strong>toutes 3 fonctionnent simultanément</strong>
+        quelle que soit la charge frigorifique, générant une surconsommation électrique.
+        Les pompes ont des HMT non concordantes, ce qui crée des déséquilibres hydrauliques.
+        <strong>Aucune pompe n'est équipée de variateur de vitesse (VEV).</strong>
+        La majorité des V3V de régulation des CTA en zone Alpha sont by-passées.
+        La consommation GEG Alpha est de <strong>755 955 kWh/an</strong> (13% de la facture usine).
+      </p>
+
+      <div class="zone-beta" style="margin-top:14px;">
+        <strong>Zone Béta</strong>
+      </div>
+      <p>
+        Le circuit eau glacée Béta comprend <strong>2 GEG Carrier 30XB</strong>
+        (393 kW + 393 kW = 786 kW) et reçoit également de l'eau glacée absorbeur.
+        3 pompes en parallèle dont les caractéristiques sont hétérogènes (HMT différentes),
+        ce qui dégrade le fonctionnement hydraulique de l'ensemble. Des pompes additionnelles
+        sont installées sur la toiture pour alimenter certaines CTA spécifiques.
+        <strong>Aucune VEV</strong> sur les pompes EG Béta.
+        Les V3V des CTA Béta sont majoritairement by-passées.
+        Consommation GEG Béta : <strong>371 177 kWh/an</strong>.
+      </p>
+
+      <div class="zone-gamma" style="margin-top:14px;">
+        <strong>Zone Gamma</strong>
+      </div>
+      <p>
+        Le circuit eau glacée Gamma comprend <strong>2 GEG Carrier 30XA</strong>
+        (503 kW + 503 kW = 1 006 kW) et reçoit de l'eau glacée absorbeur (≈ 213 kW).
+        2 pompes identiques DAB (7,5 kW chacune) fonctionnent en permanence.
+        <strong>Aucune VEV</strong> sur les pompes EG Gamma.
+        L'interconnexion entre les circuits Alpha et Gamma (conduite maintenue fermée) présente
+        des goulots d'étranglement hydrauliques limitant l'efficacité de la récupération absorbeur.
+        Consommation GEG Gamma : <strong>279 603 kWh/an</strong>.
+      </p>
+
+      <h4>&#128200; 4. Interprétation — Eau Glacée</h4>
+      <ul style="line-height:2.0;">
+        <li>La consommation totale des GEG est de <strong>1 406 735 kWh/an</strong>,
+          soit <strong>24,7% de la facture électrique globale</strong> — c'est le plus grand poste
+          de consommation électrique de l'usine.</li>
+        <li>Le fonctionnement permanent de toutes les pompes, indépendamment de la charge réelle,
+          génère une surconsommation estimée à <strong>10% de la consommation des pompes EG</strong>
+          (301 861 kWh/an × 10% = ~30 186 kWh/an inutiles).</li>
+        <li>La température de consigne eau glacée fixée à <strong>6°C</strong> est trop basse,
+          surtout en hiver. Chaque degré supplémentaire économise ~3% sur les GEG.
+          Remonter à 7–8°C en hiver permettrait de gagner 3–6% (~42 200–84 400 kWh/an).</li>
+        <li>L'arrêt des GEG sans fermeture des vannes correspondantes fait circuler inutilement
+          de l'eau glacée dans les évaporateurs à l'arrêt, provoquant des pertes thermiques
+          et réduisant l'efficacité des GEG en service.</li>
+        <li>La récupération de froid via l'absorbeur TRI est perturbée par le
+          sous-débit de la pompe eau de tour (~150 m³/h vs 230 m³/h nominal),
+          limitant la puissance frigorifique de l'absorbeur à ~420 kW au lieu des 802 kW nominaux.</li>
+        <li>Les COP mesurés des GEG (EER ~3,08–3,24) sont dans les plages nominales
+          mais peuvent être dégradés par les températures d'eau glacée trop basses
+          et les pertes de charge excessives dans les circuits hydrauliques.</li>
+      </ul>
+    </div>""", unsafe_allow_html=True)
+
+    # ── C2-4 : GRAPHIQUES MENSUELS EG (FROID PRODUIT) ────────────────────────
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Froid produit mensuel par zone (Absorbeur TRI)</div>',
+                unsafe_allow_html=True)
+
+    c_fz1, c_fz2 = st.columns(2)
+
+    with c_fz1:
+        fig_froid_line = go.Figure()
+        for z_lab, col_f, col_z in [
+            ("Alpha", "froid_alpha_kwh", "#00b4d8"),
+            ("Béta",  "froid_beta_kwh",  "#f7971e"),
+            ("Gamma", "froid_gamma_kwh", "#a0e878"),
+        ]:
+            fig_froid_line.add_trace(go.Scatter(
+                x=df_zm_f["mois"],
+                y=df_zm_f[col_f] / 1000,
+                mode="lines+markers", name=f"Zone {z_lab}",
+                line=dict(color=col_z, width=2.2), marker=dict(size=7),
+                hovertemplate=f"<b>Zone {z_lab}</b><br>%{{x}}<br>%{{y:.1f}} MWh<extra></extra>",
+            ))
+        fig_froid_line.update_layout(
+            title="Froid produit (absorbeur) par zone — Évolution mensuelle",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="MWh/mois", height=310,
+            margin=dict(l=50, r=20, t=50, b=70),
+            legend=dict(bgcolor="#0b1929", font_size=11),
+            xaxis=dict(tickangle=-45),
+        )
+        st.plotly_chart(fig_froid_line, use_container_width=True)
+
+    with c_fz2:
+        fig_froid_bar = go.Figure()
+        for z_lab, col_f, col_z in [
+            ("Alpha", "froid_alpha_kwh", "#00b4d8"),
+            ("Béta",  "froid_beta_kwh",  "#f7971e"),
+            ("Gamma", "froid_gamma_kwh", "#a0e878"),
+        ]:
+            fig_froid_bar.add_trace(go.Bar(
+                name=f"Zone {z_lab}", x=df_zm_f["mois"],
+                y=df_zm_f[col_f] / 1000,
+                marker_color=col_z, opacity=0.85,
+                hovertemplate=f"<b>Zone {z_lab}</b><br>%{{x}}<br>%{{y:.1f}} MWh<extra></extra>",
+            ))
+        fig_froid_bar.update_layout(
+            barmode="stack",
+            title="Froid produit mensuel — répartition par zone (MWh)",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="MWh", height=310,
+            margin=dict(l=50, r=20, t=50, b=70),
+            legend=dict(bgcolor="#0b1929", font_size=11),
+            xaxis=dict(tickangle=-45),
+        )
+        st.plotly_chart(fig_froid_bar, use_container_width=True)
+
+    # Froid total vs Récupération thermique par zone — vue comparative
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Froid produit vs Récupération thermique — Vue comparative mensuelle</div>',
+                unsafe_allow_html=True)
+    fig_comp = go.Figure()
+    fig_comp.add_trace(go.Scatter(
+        x=df_zm_f["mois"], y=df_zm_f["froid_total_kwh"] / 1000,
+        mode="lines+markers", name="Froid total produit (absorbeur)",
+        line=dict(color="#a0e878", width=2.5), marker=dict(size=8),
+        fill="tozeroy", fillcolor="rgba(160,232,120,0.07)",
+        hovertemplate="<b>Froid total</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+    ))
+    fig_comp.add_trace(go.Scatter(
+        x=df_zm_f["mois"], y=df_zm_f["ec_alpha_total_kwh"] / 1000,
+        mode="lines+markers", name="Récup. thermique Alpha (EC+ECS)",
+        line=dict(color="#00b4d8", width=2), marker=dict(size=7),
+        hovertemplate="<b>Récup. Alpha</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+    ))
+    fig_comp.add_trace(go.Scatter(
+        x=df_zm_f["mois"], y=df_zm_f["ec_gamma_total_kwh"] / 1000,
+        mode="lines+markers", name="Récup. thermique Gamma",
+        line=dict(color="#a0e878", width=2, dash="dot"), marker=dict(size=7),
+        hovertemplate="<b>Récup. Gamma</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+    ))
+    fig_comp.add_trace(go.Scatter(
+        x=df_zm_f["mois"], y=df_zm_f["rec_totale_kwh"] / 1000,
+        mode="lines+markers", name="Récup. totale (toutes zones + absorbeur)",
+        line=dict(color="#f7971e", width=2.5), marker=dict(size=8),
+        hovertemplate="<b>Récup. totale</b><br>%{x}<br>%{y:.1f} MWh<extra></extra>",
+    ))
+    fig_comp.update_layout(
+        title="Froid produit & Récupération thermique par zone — Évolution mensuelle (MWh)",
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="MWh/mois", height=360,
+        margin=dict(l=50, r=20, t=50, b=70),
+        legend=dict(bgcolor="#0b1929", font_size=11),
+        xaxis=dict(tickangle=-45),
+    )
+    st.plotly_chart(fig_comp, use_container_width=True)
+
+    # Tableau récapitulatif froid par zone
+    df_froid_tab = df_zone_monthly[[
+        "mois", "froid_total_kwh", "froid_alpha_kwh", "froid_beta_kwh", "froid_gamma_kwh"
+    ]].copy()
+    df_froid_tab.columns = [
+        "Mois", "Froid total (kWh)", "Froid Zone Alpha (kWh)", "Froid Zone Béta (kWh)", "Froid Zone Gamma (kWh)"
+    ]
+    for c in df_froid_tab.columns[1:]:
+        df_froid_tab[c] = df_froid_tab[c].apply(lambda x: f"{int(x):,}" if pd.notna(x) and x > 0 else "0")
+    st.markdown("**Tableau mensuel — Froid produit par zone (répartition ≈ 33%/33%/34%)**")
+    st.dataframe(df_froid_tab, use_container_width=True, hide_index=True)
+
+    # ── C2-5 : CONCLUSIONS EC/EG ─────────────────────────────────────────────
+    _total_rec_alpha_mwh = df_zone_monthly["ec_alpha_total_kwh"].sum() / 1000
+    _total_rec_gamma_mwh = df_zone_monthly["ec_gamma_total_kwh"].sum() / 1000
+    _total_froid_mwh     = df_zone_monthly["froid_total_kwh"].sum() / 1000
+    _total_rec_chil_mwh  = df_zone_monthly["ec_chiller_kwh"].sum() / 1000
+
+    st.markdown(f"""
+    <div class="rbox" style="margin-top:16px;">
+      <h4>&#9989; 5. Conclusions — Eau Chaude & Eau Glacée</h4>
+      <ol style="line-height:2.2;">
+        <li>Sur la période analysée ({nb_mois} mois), la trigénération a récupéré
+          <strong>{_total_rec_alpha_mwh:.0f} MWh</strong> en Zone Alpha,
+          <strong>{_total_rec_gamma_mwh:.0f} MWh</strong> en Zone Gamma et
+          <strong>{_total_rec_chil_mwh:.0f} MWh</strong> vers l'absorbeur,
+          produisant <strong>{_total_froid_mwh:.0f} MWh</strong> de froid total.
+          La récupération est globalement efficace pour les zones Alpha et Gamma.</li>
+        <li>La <strong>zone Béta est le point aveugle majeur</strong> du système :
+          aucune récupération thermique ni frigorifique, chaudière EC fonctionnant en continu,
+          réseau air comprimé sous-dimensionné, V3V by-passées.
+          Elle cumule les déficiences et représente le potentiel d'amélioration le plus élevé.</li>
+        <li>Le <strong>pompage eau glacée est surdimensionné</strong> dans les 3 zones :
+          toutes les pompes fonctionnent en permanence sans asservissement à la charge,
+          sans VEV, sans régulation adaptative. Le potentiel d'économies est estimé à
+          ~10% de la consommation des GEG + pompes, soit &gt;170 MWh/an.</li>
+        <li>Les <strong>V3V by-passées</strong> sur la majorité des CTA des zones Alpha et Béta
+          rendent la régulation de l'eau glacée inefficace, forçant les GEG à maintenir
+          une température de départ excessivement basse (6°C vs 7–8°C possible).
+          C'est un facteur multiplicateur de consommation frigorifique.</li>
+        <li>La <strong>machine à absorption fonctionne en dessous de sa capacité nominale</strong>
+          (420 kW réels vs 802 kW nominaux), principalement à cause du sous-débit eau de tour.
+          Le froid non récupéré représente ~380 kW de capacité inexploitée, obligeant les GEG
+          à compenser inutilement.</li>
+        <li>Les <strong>pertes thermiques sur canalisations et équipements</strong> sont significatives :
+          ballon ECS Béta non calorifugé, vannes vapeur non calorifugées, conduites EC
+          chaufferie Béta non isolées. Ces pertes s'accumulent pour représenter 5–8% de l'énergie
+          thermique utile distribuée.</li>
+      </ol>
+
+      <h4>&#128295; 6. Recommandations & Plan d'action — EC & EG</h4>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;">
+        <tr style="background:#0d2a40;color:#90c2e7;text-align:left;">
+          <th style="padding:8px 10px;">Action</th>
+          <th style="padding:8px 10px;">Zone</th>
+          <th style="padding:8px 10px;">Priorité</th>
+          <th style="padding:8px 10px;">Impact</th>
+          <th style="padding:8px 10px;">Investissement</th>
+          <th style="padding:8px 10px;">TRB</th>
+        </tr>
+        <tr style="border-bottom:1px solid #1b3352;">
+          <td style="padding:7px 10px;">Calorifuger ballon ECS + conduites EC Béta</td>
+          <td style="padding:7px 10px;color:#f7971e;font-weight:600;">Béta</td>
+          <td style="padding:7px 10px;color:#e63946;font-weight:600;">CRITIQUE</td>
+          <td style="padding:7px 10px;">−5 à 8% pertes thermiques</td>
+          <td style="padding:7px 10px;">&lt; 1 000 DT</td>
+          <td style="padding:7px 10px;">&lt; 1 mois</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1b3352;background:#0b1929;">
+          <td style="padding:7px 10px;">Raccorder Zone Béta à la récupération TRI</td>
+          <td style="padding:7px 10px;color:#f7971e;font-weight:600;">Béta</td>
+          <td style="padding:7px 10px;color:#e63946;font-weight:600;">CRITIQUE</td>
+          <td style="padding:7px 10px;">~159 771 DT/an (gaz Béta)</td>
+          <td style="padding:7px 10px;">~60 000 DT</td>
+          <td style="padding:7px 10px;">&lt; 0.8 an</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1b3352;">
+          <td style="padding:7px 10px;">Remplacement pompe eau de tour (débit 230 m³/h)</td>
+          <td style="padding:7px 10px;">TRI</td>
+          <td style="padding:7px 10px;color:#e63946;font-weight:600;">CRITIQUE</td>
+          <td style="padding:7px 10px;">+380 kW froid absorbeur récupéré</td>
+          <td style="padding:7px 10px;">~15 000 DT</td>
+          <td style="padding:7px 10px;">&lt; 0.5 an</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1b3352;background:#0b1929;">
+          <td style="padding:7px 10px;">Réhabiliter V3V CTA — Zones Alpha & Béta</td>
+          <td style="padding:7px 10px;color:#00b4d8;font-weight:600;">Alpha + Béta</td>
+          <td style="padding:7px 10px;color:#ffd200;font-weight:600;">URGENT</td>
+          <td style="padding:7px 10px;">−10% consommation GEG zones</td>
+          <td style="padding:7px 10px;">~30 000 DT</td>
+          <td style="padding:7px 10px;">~1 an</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1b3352;">
+          <td style="padding:7px 10px;">Asservir pompes EG + installer VEV</td>
+          <td style="padding:7px 10px;">Toutes</td>
+          <td style="padding:7px 10px;color:#ffd200;font-weight:600;">URGENT</td>
+          <td style="padding:7px 10px;">~51 429 DT/an</td>
+          <td style="padding:7px 10px;">230 000 DT</td>
+          <td style="padding:7px 10px;">3.3–4.5 ans</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1b3352;background:#0b1929;">
+          <td style="padding:7px 10px;">Relever consigne EG 6°C → 7–8°C (hiver)</td>
+          <td style="padding:7px 10px;">Toutes</td>
+          <td style="padding:7px 10px;color:#ffd200;font-weight:600;">URGENT</td>
+          <td style="padding:7px 10px;">−3 à 6% conso GEG (~42–84 MWh/an)</td>
+          <td style="padding:7px 10px;">0 DT</td>
+          <td style="padding:7px 10px;">Immédiat</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1b3352;">
+          <td style="padding:7px 10px;">Fermer vannes GEG à l'arrêt (procédure)</td>
+          <td style="padding:7px 10px;color:#a0e878;font-weight:600;">Gamma</td>
+          <td style="padding:7px 10px;color:#ffd200;font-weight:600;">IMPORTANT</td>
+          <td style="padding:7px 10px;">Évite pertes circulation à vide</td>
+          <td style="padding:7px 10px;">0 DT</td>
+          <td style="padding:7px 10px;">Immédiat</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1b3352;background:#0b1929;">
+          <td style="padding:7px 10px;">Corriger comptage EC : inhiber chaudière si TRI active</td>
+          <td style="padding:7px 10px;color:#00b4d8;font-weight:600;">Alpha</td>
+          <td style="padding:7px 10px;color:#ffd200;font-weight:600;">IMPORTANT</td>
+          <td style="padding:7px 10px;">Fiabilise indicateurs de performance</td>
+          <td style="padding:7px 10px;">~2 000 DT (électrovanne)</td>
+          <td style="padding:7px 10px;">Immédiat</td>
+        </tr>
+        <tr style="background:#0b1929;">
+          <td style="padding:7px 10px;">Remplacement CTA vétustes Zone Alpha (3 nouvelles)</td>
+          <td style="padding:7px 10px;color:#00b4d8;font-weight:600;">Alpha</td>
+          <td style="padding:7px 10px;color:#90c2e7;font-weight:600;">MOYEN TERME</td>
+          <td style="padding:7px 10px;">87 305 DT/an (élec + froid)</td>
+          <td style="padding:7px 10px;">600 000 DT</td>
+          <td style="padding:7px 10px;">5.5–6.9 ans</td>
+        </tr>
+      </table>
+
+      <div style="margin-top:18px;padding:12px 16px;background:#0d2a40;border-radius:8px;
+                  border-left:4px solid #0077b6;font-size:13px;line-height:1.9;">
+        <strong style="color:#90c2e7;">📌 Synthèse du potentiel EC & EG :</strong><br>
+        &bull; <strong>Actions immédiates (0 investissement)</strong> :
+        relever consigne EG, fermer vannes GEG à l'arrêt, corriger procédures d'exploitation
+        → gain estimé <strong>~42–84 MWh/an froid</strong>, sans coût.<br>
+        &bull; <strong>Court terme (&lt; 1 an)</strong> :
+        calorifugation ballon Béta, correction pompe eau de tour, réhabilitation V3V
+        → gain estimé <strong>~15 000–30 000 DT/an</strong> pour un investissement &lt; 50 000 DT.<br>
+        &bull; <strong>Priorité stratégique</strong> :
+        raccordement Béta à la récupération TRI → gain <strong>~159 771 DT/an</strong>
+        pour 60 000 DT d'investissement. <span class="tag-ok">TRB &lt; 0.8 an</span>
+      </div>
+    </div>""", unsafe_allow_html=True)
+
     # ── D. CONCLUSIONS ──────────────────────────────────────────────────────
     st.markdown('<div class="sec-hdr">D — Conclusions</div>', unsafe_allow_html=True)
     st.markdown(f"""
@@ -1773,6 +3026,38 @@ with tab6:
             bilan.to_excel(w, sheet_name="Bilan Flux", index=False)
             df_zone_export.to_excel(w, sheet_name="Énergie par Zone", index=False)
             df_eco.to_excel(w, sheet_name="Économies par Zone", index=False)
+            # Feuille Eau Chaude par zone
+            df_ec_export = pd.DataFrame([{
+                "Zone": z,
+                "Pu chaudière (kW)": EC_ZONES["pu_chaudiere_kw"][z],
+                "Pu récup. TRI (kW)": EC_ZONES["pu_recuperation_kw"][z],
+                "Besoin réel (kW)": EC_ZONES["besoin_reel_kw"][z],
+                "T départ (°C)": EC_ZONES["T_depart_c"][z],
+                "T retour (°C)": EC_ZONES["T_retour_c"][z],
+                "Gaz chaudière EC réel (Nm³/an)": EC_ZONES["gaz_chaudiere_nm3"][z],
+                "Gaz chaudière EC objectif (Nm³/an)": EC_ZONES["gaz_objectif_nm3"][z],
+                "Récup. TRI estimée (kWh/an)": EC_ZONES["energie_recuperee_kwh"][z],
+                "Ballon ECS (L)": EC_ZONES["ballon_ecs_L"][z],
+                "Ballon calorifugé": EC_ZONES["ballon_calorifuge"][z],
+            } for z in ZONES])
+            df_ec_export.to_excel(w, sheet_name="Eau Chaude par Zone", index=False)
+            # Feuille Eau Glacée par zone
+            df_eg_export = pd.DataFrame([{
+                "Zone": z,
+                "Puissance GEG (kW)": EG_ZONES["pu_geg_kw"][z],
+                "Puissance absorption TRI (kW)": EG_ZONES["pu_absorption_kw"][z],
+                "Puissance totale (kW)": EG_ZONES["pu_totale_kw"][z],
+                "T départ EG (°C)": EG_ZONES["T_depart_eg_c"][z],
+                "T retour EG (°C)": EG_ZONES["T_retour_eg_c"][z],
+                "EER moyen": EG_ZONES["EER_moyen"][z],
+                "Conso GEG réel (kWh/an)": EG_ZONES["energie_geg_kwh"][z],
+                "Conso GEG objectif (kWh/an)": EG_ZONES["energie_geg_obj_kwh"][z],
+                "Conso pompes réel (kWh/an)": EG_ZONES["energie_pompes_kwh"][z],
+                "Conso pompes objectif (kWh/an)": EG_ZONES["energie_pompes_obj_kwh"][z],
+                "V3V CTA": EG_ZONES["v3v_etat"][z],
+                "VEV pompes": EG_ZONES["vev_pompes"][z],
+            } for z in ZONES])
+            df_eg_export.to_excel(w, sheet_name="Eau Glacée par Zone", index=False)
             if not df_al5.empty:
                 df_al5.to_excel(w, sheet_name="Alertes", index=False)
             eco_sheet = df[["mois","cout_gaz_dt","val_elec_dt","val_chaleur_dt",
