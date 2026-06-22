@@ -139,32 +139,40 @@ st.markdown("""
 </div>
 <hr style="border-color:#162030;margin-bottom:20px;">
 """, unsafe_allow_html=True)
-
+# Taux de pertes canalisations — valeur fixe (3 %, non exposée dans la sidebar)
+taux_pertes = 0.03
 # =============================================================================
 # 3. SIDEBAR
 # =============================================================================
 with st.sidebar:
     st.markdown("### ⚙️ Paramètres système")
     PCI           = st.number_input("PCI gaz naturel (kWh/Nm³)", value=10.55, step=0.01)
-    prix_kwh_steg = st.number_input("Prix kWh STEG achat (DT)", value=0.291, step=0.001)
     prix_gaz_nm3  = st.number_input("Prix gaz naturel (DT/Nm³)", value=0.575, step=0.001)
-    taux_pertes   = st.number_input("Pertes canalisations (%)", value=3.0, step=0.5,
-                                    min_value=0.0, max_value=20.0) / 100.0
+    prix_kwh_steg = st.number_input("Prix kWh d'électricité achetée (DT)", value=0.291, step=0.001)
+
 
     st.markdown("---")
     st.markdown("### 📐 Valeurs nominales")
-    eta_e_nom    = st.number_input("η_e nominal",        value=0.42,  step=0.01)
-    eta_th_nom   = st.number_input("η_th nominal",       value=0.30,  step=0.01)
-    eta_frig_nom = st.number_input("η_frig nominal",     value=0.235, step=0.005)
-    eta_glob_nom = st.number_input("η_global nominal",   value=0.765, step=0.005)
+    eta_e_nom    = st.number_input("rendement électrique nominal",        value=0.42,  step=0.01)
+    eta_th_nom   = st.number_input("rendement thermique nominal",       value=0.30,  step=0.01)
+    eta_frig_nom = st.number_input("rendement frigorifique nominal",     value=0.235, step=0.005)
+    eta_glob_nom = st.number_input("rendement global nominal",   value=0.765, step=0.005)
     cop_nom      = st.number_input("COP nominal absorption", value=0.78, step=0.01)
 
     st.markdown("---")
-    st.markdown("### 🚨 Seuils d'alerte")
-    seuil_eta_glob = st.number_input("Seuil η_global", value=0.60, step=0.01)
-    seuil_eta_e    = st.number_input("Seuil η_e",      value=0.35, step=0.01)
-    seuil_eta_th   = st.number_input("Seuil η_th",     value=0.25, step=0.01)
-    seuil_cop      = st.number_input("Seuil COP",      value=0.65, step=0.01)
+    st.markdown("### 📊 Seuils de dérive mensuelle")
+    seuil_derive_moderee  = st.number_input("Écart modéré vs nominal (%)", value=5.0, step=1.0,
+        help="Dérive ⚠️ si l'écart au nominal dépasse ce % sur un mois") / 100.0
+    seuil_derive_critique = st.number_input("Écart significatif vs nominal (%)", value=15.0, step=1.0,
+        help="Dérive ❌ si l'écart au nominal dépasse ce % sur un mois") / 100.0
+    nb_mois_tendance = st.number_input("Mois consécutifs pour tendance", value=3, step=1, min_value=2, max_value=6,
+        help="Nombre de mois consécutifs en baisse pour détecter une tendance de dégradation")
+
+    # Valeurs compatibilité (utilisées uniquement pour les graphiques — lignes de référence)
+    seuil_eta_glob = eta_glob_nom * (1 - seuil_derive_critique)
+    seuil_eta_e    = eta_e_nom    * (1 - seuil_derive_critique)
+    seuil_eta_th   = eta_th_nom   * (1 - seuil_derive_critique)
+    seuil_cop      = cop_nom      * (1 - seuil_derive_critique)
 
     st.markdown("---")
     st.markdown("### 📂 Import données")
@@ -294,6 +302,63 @@ df_raw["gain_global_dt"] = (
     + df_raw["val_froid_dt"] - df_raw["cout_gaz_dt"]
 )
 
+# =============================================================================
+# CALCULS CO₂ ET TEP (coefficients ANME / Tableau 1 & 2 de l'audit)
+# STEG électricité  : 0.283 TEP/MWh  × 2.349 tCO₂/TEP
+# Gaz naturel       : 0.9 TEP/kNm³   × 2.349 tCO₂/TEP
+# Frigorie évitée   : via COP_GEG=3.1 → kWh élec évités → CO₂ évité
+# Chaleur évitée    : via η_chaud=0.90 → Nm³ GN évités → CO₂ évité
+# =============================================================================
+FACTEUR_TEP_ELEC   = 0.283 / 1000      # TEP/kWh
+FACTEUR_CO2_ELEC   = 2.349             # tCO₂/TEP
+FACTEUR_TEP_GAZ    = 0.9 / 1000        # TEP/Nm³
+FACTEUR_CO2_GAZ    = 2.349             # tCO₂/TEP
+COP_GEG_REF        = 3.1               # COP groupe froid électrique de référence
+ETA_CHAUD_REF      = 0.90              # rendement chaudière de référence
+
+# TEP & CO₂ du gaz consommé
+df_raw["tep_gaz"]      = df_raw["gaz"] * FACTEUR_TEP_GAZ
+df_raw["co2_gaz"]      = df_raw["tep_gaz"] * FACTEUR_CO2_GAZ
+
+# kWh STEG évités (= élec + froid/COP_GEG + chaleur/η_chaud/PCI → Nm³ →TEP)
+df_raw["elec_steg_evite"]    = df_raw["prod_nette"]                     # kWh élec
+df_raw["elec_equiv_froid"]   = df_raw["froid"] / COP_GEG_REF            # kWh élec équiv.
+df_raw["nm3_equiv_chaleur"]  = df_raw["chaleur"] / (ETA_CHAUD_REF * PCI) # Nm³ GN équiv.
+
+df_raw["tep_evite_elec"]   = df_raw["elec_steg_evite"] * FACTEUR_TEP_ELEC
+df_raw["tep_evite_froid"]  = df_raw["elec_equiv_froid"] * FACTEUR_TEP_ELEC
+df_raw["tep_evite_chaud"]  = df_raw["nm3_equiv_chaleur"] * FACTEUR_TEP_GAZ
+df_raw["tep_evite_total"]  = (df_raw["tep_evite_elec"]
+                              + df_raw["tep_evite_froid"]
+                              + df_raw["tep_evite_chaud"])
+df_raw["tep_net"]          = df_raw["tep_evite_total"] - df_raw["tep_gaz"]
+
+df_raw["co2_evite_elec"]   = df_raw["tep_evite_elec"]  * FACTEUR_CO2_ELEC
+df_raw["co2_evite_froid"]  = df_raw["tep_evite_froid"] * FACTEUR_CO2_ELEC
+df_raw["co2_evite_chaud"]  = df_raw["tep_evite_chaud"] * FACTEUR_CO2_GAZ
+df_raw["co2_evite_total"]  = (df_raw["co2_evite_elec"]
+                               + df_raw["co2_evite_froid"]
+                               + df_raw["co2_evite_chaud"])
+df_raw["co2_net"]          = df_raw["co2_evite_total"] - df_raw["co2_gaz"]
+
+# Score de performance 0–100 (pondéré par les 4 KPI vs nominal)
+def _score_perf(row, e_nom, th_nom, frig_nom, cop_nom_):
+    scores = []
+    if e_nom > 0:
+        scores.append(min(1.0, row["eta_e"] / e_nom) * 30)
+    if th_nom > 0:
+        scores.append(min(1.0, row["eta_th"] / th_nom) * 25)
+    if frig_nom > 0:
+        scores.append(min(1.0, row["eta_frig"] / frig_nom) * 20)
+    cop_v = row["COP"]
+    if pd.notna(cop_v) and cop_v > 0 and cop_nom_ > 0:
+        scores.append(min(1.0, cop_v / cop_nom_) * 25)
+    return sum(scores) if scores else 0.0
+
+df_raw["score_perf"] = df_raw.apply(
+    lambda r: _score_perf(r, 0.42, 0.30, 0.235, 0.78), axis=1
+)
+
 safe_h = df_raw["h_service"].replace(0, np.nan)
 df_raw["elec_h"]    = (df_raw["prod_nette"] / safe_h).fillna(0)
 df_raw["chaleur_h"] = (df_raw["chaleur"]    / safe_h).fillna(0)
@@ -342,72 +407,129 @@ best_m    = df.loc[df["eta_glob"].idxmax(), "mois"]
 worst_m   = df.loc[df["eta_glob"].idxmin(), "mois"]
 periode_t = f"{df['mois'].iloc[0]} → {df['mois'].iloc[-1]}"
 
+# Agrégats CO₂ & TEP sur la période filtrée
+total_tep_gaz       = df["tep_gaz"].sum()
+total_co2_gaz       = df["co2_gaz"].sum()
+total_tep_evite     = df["tep_evite_total"].sum()
+total_co2_evite     = df["co2_evite_total"].sum()
+total_tep_net       = df["tep_net"].sum()
+total_co2_net       = df["co2_net"].sum()
+score_perf_moy      = df["score_perf"].mean()
+
 # =============================================================================
-# 8. DÉTECTION ALERTES
+# 8. DÉTECTION DÉRIVE MENSUELLE (remplace les seuils d'alerte temps-réel)
+# Logique : comparaison mois M vs nominal + tendance sur N mois consécutifs
 # =============================================================================
-def detecter_alertes(dataframe: pd.DataFrame) -> pd.DataFrame:
+def _statut_ecart(val, nominal, seuil_mod, seuil_crit):
+    """Retourne (statut, classe_css) selon l'écart relatif au nominal."""
+    if nominal == 0 or val == 0:
+        return "⛔ Arrêt / N.D.", "arow-red"
+    ecart = (val - nominal) / nominal   # négatif = dégradation
+    if ecart >= -seuil_mod:
+        return "✅ Conforme", ""
+    elif ecart >= -seuil_crit:
+        return "⚠️ Écart modéré", "arow-yel"
+    else:
+        return "❌ Écart significatif", "arow-red"
+
+def _detecter_tendance(series: pd.Series, n: int) -> bool:
+    """Retourne True si les n dernières valeurs sont strictement décroissantes."""
+    vals = series.dropna().tolist()
+    if len(vals) < n:
+        return False
+    tail = vals[-n:]
+    return all(tail[i] > tail[i+1] for i in range(len(tail)-1))
+
+def detecter_derives_mensuelles(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """
+    Pour chaque mois et chaque KPI, calcule :
+      - l'écart au nominal
+      - le statut (Conforme / Écart modéré / Écart significatif)
+      - la variation mois/mois (M vs M-1)
+    """
     rows = []
-    for _, r in dataframe.iterrows():
-        mois = r["mois"]
-        cause_cop = r.get("cause_cop", "")
-
-        if r["eta_e"] > 0 and r["eta_e"] < seuil_eta_e:
+    kpis = [
+        ("η_e",      "eta_e",    eta_e_nom,    "Rendement électrique",
+         "Vérifier filtres air moteur, qualité gaz, refroidissement moteur."),
+        ("η_th",     "eta_th",   eta_th_nom,   "Récupération thermique",
+         "Inspecter échangeurs à plaques (encrassement), débits circuits EC."),
+        ("η_frig",   "eta_frig", eta_frig_nom, "Récupération frigorifique",
+         "Contrôle absorbeur : niveau LiBr, T° eau de tour, débit pompe tour."),
+        ("η_global", "eta_glob", eta_glob_nom, "Performance globale",
+         "Bilan complet moteur + récupération thermique + absorbeur."),
+        ("COP",      "COP",      cop_nom,      "COP machine à absorption",
+         "Nettoyage condenseur, analyse solution LiBr, débit eau de tour."),
+    ]
+    for nom_kpi, col, nominal, label, action in kpis:
+        prev_val = None
+        for idx, r in dataframe.iterrows():
+            val = r[col]
+            mois = r["mois"]
+            cause = r.get("cause_cop", "")
+            # Valeur numérique
+            val_num = float(val) if pd.notna(val) and val != 0 else 0.0
+            # Écart nominal
+            if nominal > 0 and val_num > 0:
+                ecart_nom = (val_num - nominal) / nominal
+            else:
+                ecart_nom = None
+            # Variation M vs M-1
+            if prev_val is not None and prev_val > 0 and val_num > 0:
+                var_mm = (val_num - prev_val) / prev_val
+            else:
+                var_mm = None
+            # Statut
+            if val_num == 0 or pd.isna(val):
+                statut = "⛔ Arrêt / N.D."
+                css    = "arow-red"
+            else:
+                statut, css = _statut_ecart(val_num, nominal,
+                                            seuil_derive_moderee, seuil_derive_critique)
             rows.append({
-                "Mois": mois, "KPI": "η_e",
-                "Valeur": f"{r['eta_e']:.1%}", "Seuil": f"{seuil_eta_e:.0%}",
-                "Nominal": f"{eta_e_nom:.0%}",
-                "Écart nominal": f"{r['eta_e']-eta_e_nom:+.1%}",
-                "Statut": "🔴 ALERTE",
-                "Cause": "Rendement électrique sous seuil",
-                "Action": "Diagnostic moteur : bougies allumage, filtres air, qualité gaz, refroidissement."
+                "Mois":        mois,
+                "KPI":         nom_kpi,
+                "Libellé":     label,
+                "Valeur":      f"{val_num:.3f}" if "COP" in nom_kpi
+                               else (f"{val_num:.1%}" if val_num > 0 else "ARRÊT"),
+                "Nominal":     f"{nominal:.2f}" if "COP" in nom_kpi else f"{nominal:.1%}",
+                "Écart/Nom":   f"{ecart_nom:+.1%}" if ecart_nom is not None else "N/A",
+                "Var. M/M-1":  f"{var_mm:+.1%}" if var_mm is not None else "—",
+                "Statut":      statut,
+                "_css":        css,
+                "Cause":       cause if cause else "—",
+                "Action":      action,
             })
+            prev_val = val_num if val_num > 0 else None
 
-        if r["eta_th"] > 0 and r["eta_th"] < seuil_eta_th:
-            niv = "🔴 ALERTE" if r["eta_th"] < 0.15 else "🟡 SURVEILLANCE"
-            rows.append({
-                "Mois": mois, "KPI": "η_th",
-                "Valeur": f"{r['eta_th']:.1%}", "Seuil": f"{seuil_eta_th:.0%}",
-                "Nominal": f"{eta_th_nom:.0%}",
-                "Écart nominal": f"{r['eta_th']-eta_th_nom:+.1%}",
-                "Statut": niv,
-                "Cause": "Récupération thermique insuffisante",
-                "Action": "Inspecter échangeurs (encrassement), vérifier débits et V3V."
-            })
+    return pd.DataFrame(rows)
 
-        cop = r["COP"]
-        if pd.isna(cop) or cop == 0:
-            rows.append({
-                "Mois": mois, "KPI": "COP absorption",
-                "Valeur": "0 (ARRÊT)", "Seuil": f"{seuil_cop:.2f}",
-                "Nominal": f"{cop_nom:.2f}", "Écart nominal": "N/A",
-                "Statut": "🔴 ALERTE",
-                "Cause": cause_cop if cause_cop else "Machine absorption hors service.",
-                "Action": "Intervention prioritaire : niveau LiBr, étanchéité, T générateur, débit eau de tour."
+def detecter_tendances(dataframe: pd.DataFrame) -> list:
+    """
+    Détecte les tendances de dégradation sur nb_mois_tendance mois consécutifs.
+    Retourne une liste de dicts {kpi, nb_mois, message}.
+    """
+    nb = int(nb_mois_tendance)
+    tendances = []
+    kpis_tend = [
+        ("η_global", "eta_glob", "Rendement global"),
+        ("COP",      "COP",      "COP absorption"),
+        ("η_e",      "eta_e",    "Rendement électrique"),
+        ("η_th",     "eta_th",   "Récupération thermique"),
+    ]
+    for nom_kpi, col, label in kpis_tend:
+        serie = dataframe[col].replace(0, np.nan)
+        if _detecter_tendance(serie, nb):
+            vals = serie.dropna().tolist()[-nb:]
+            tendances.append({
+                "kpi":     nom_kpi,
+                "label":   label,
+                "nb":      nb,
+                "vals":    vals,
+                "message": (f"**{label}** en baisse continue sur {nb} mois consécutifs "
+                            f"({vals[0]:.3f} → {vals[-1]:.3f}). "
+                            f"Tendance de dégradation à surveiller."),
             })
-        elif cop < seuil_cop:
-            rows.append({
-                "Mois": mois, "KPI": "COP absorption",
-                "Valeur": f"{cop:.3f}", "Seuil": f"{seuil_cop:.2f}",
-                "Nominal": f"{cop_nom:.2f}",
-                "Écart nominal": f"{cop-cop_nom:+.3f}",
-                "Statut": "🔴 ALERTE",
-                "Cause": cause_cop if cause_cop else "COP inférieur au seuil.",
-                "Action": "Nettoyage condenseur, analyse LiBr, contrôle T° eau de tour."
-            })
-
-        if r["eta_glob"] > 0 and r["eta_glob"] < seuil_eta_glob:
-            rows.append({
-                "Mois": mois, "KPI": "η_global",
-                "Valeur": f"{r['eta_glob']:.1%}", "Seuil": f"{seuil_eta_glob:.0%}",
-                "Nominal": f"{eta_glob_nom:.1%}",
-                "Écart nominal": f"{r['eta_glob']-eta_glob_nom:+.1%}",
-                "Statut": "🔴 ALERTE",
-                "Cause": "Performance globale critique",
-                "Action": "Audit complet : moteur + échangeurs + absorption."
-            })
-
-    cols = ["Mois","KPI","Valeur","Seuil","Nominal","Écart nominal","Statut","Cause","Action"]
-    return pd.DataFrame(rows, columns=cols)
+    return tendances
 
 # =============================================================================
 # 9. HELPER KPI CARD
@@ -633,12 +755,13 @@ prod_ref  = 16_411_490
 # =============================================================================
 # 11. ONGLETS  (tab5 = Énergie par Zone | tab6 = Rapport & Export)
 # =============================================================================
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊  KPI & Rendements",
     "🔀  Flux Énergétique",
-    "🚨  Alertes",
+    "📉  Dérives Mensuelles",
     "💰  Analyse Économique",
     "🏭  Énergie par Zone",
+    "📅  Comparaison Annuelle",
     "📋  Rapport & Export",
 ])
 
@@ -666,12 +789,48 @@ with tab1:
           <div class="kpi-delta delta-neu">sur {nb_mois} mois</div>
         </div>""", unsafe_allow_html=True)
 
+    # ── Score de santé + CO₂ + TEP ───────────────────────────────────────────
+    score_cls = ("alert" if score_perf_moy < 60
+                 else "warn" if score_perf_moy < 80 else "")
+    score_col = ("#e63946" if score_perf_moy < 60
+                 else "#ffd200" if score_perf_moy < 80 else "#2dc653")
+    score_label = ("⚠️ DÉGRADÉ" if score_perf_moy < 60
+                   else "🔶 PARTIEL" if score_perf_moy < 80 else "✅ BON")
+
+    ks1, ks2, ks3, ks4 = st.columns(4)
+    ks1.markdown(f"""<div class="kpi-card {score_cls}">
+      <div class="kpi-label">Score de performance</div>
+      <div class="kpi-value" style="color:{score_col};">{score_perf_moy:.1f}
+        <span class="kpi-unit">/ 100</span></div>
+      <div class="kpi-delta" style="color:{score_col};">{score_label}</div>
+    </div>""", unsafe_allow_html=True)
+    ks2.markdown(f"""<div class="kpi-card">
+      <div class="kpi-label">CO₂ net évité</div>
+      <div class="kpi-value" style="color:#2dc653;">{total_co2_net:.1f}
+        <span class="kpi-unit">tCO₂</span></div>
+      <div class="kpi-delta delta-pos">Évité : {total_co2_evite:.1f} t — Émis : {total_co2_gaz:.1f} t</div>
+    </div>""", unsafe_allow_html=True)
+    ks3.markdown(f"""<div class="kpi-card">
+      <div class="kpi-label">TEP net économisé</div>
+      <div class="kpi-value" style="color:#00b4d8;">{total_tep_net:.1f}
+        <span class="kpi-unit">TEP</span></div>
+      <div class="kpi-delta delta-pos">Évité : {total_tep_evite:.1f} — Consommé : {total_tep_gaz:.1f}</div>
+    </div>""", unsafe_allow_html=True)
+    ks4.markdown(f"""<div class="kpi-card">
+      <div class="kpi-label">Disponibilité absorption</div>
+      <div class="kpi-value">{df['COP'].notna().sum() / max(nb_mois,1)*100:.0f}
+        <span class="kpi-unit">%</span></div>
+      <div class="kpi-delta delta-neu">{df['COP'].notna().sum()}/{nb_mois} mois avec COP valide</div>
+    </div>""", unsafe_allow_html=True)
+
     st.markdown('<div class="sec-hdr">Évolution du rendement global</div>', unsafe_allow_html=True)
-    mc = ["#e63946" if v < seuil_eta_glob else ("#ffd200" if v < eta_glob_nom else "#2dc653")
+    seuil_eg_mod  = eta_glob_nom * (1 - seuil_derive_moderee)
+    seuil_eg_crit = eta_glob_nom * (1 - seuil_derive_critique)
+    mc = ["#e63946" if v < seuil_eg_crit else ("#ffd200" if v < seuil_eg_mod else "#2dc653")
           for v in df["eta_glob"]]
     fg = go.Figure()
-    fg.add_hrect(y0=0, y1=seuil_eta_glob*100, fillcolor="rgba(230,57,70,0.05)", line_width=0)
-    fg.add_hrect(y0=seuil_eta_glob*100, y1=eta_glob_nom*100,
+    fg.add_hrect(y0=0, y1=seuil_eg_crit*100, fillcolor="rgba(230,57,70,0.05)", line_width=0)
+    fg.add_hrect(y0=seuil_eg_crit*100, y1=seuil_eg_mod*100,
                  fillcolor="rgba(255,210,0,0.03)", line_width=0)
     fg.add_trace(go.Scatter(x=df["mois"], y=df["eta_glob"]*100,
                             mode="lines+markers", line=dict(color="#0077b6",width=2.5),
@@ -680,8 +839,8 @@ with tab1:
     fg.add_hline(y=eta_glob_nom*100, line_dash="dash", line_color="#ffd200",
                  annotation_text=f"Nominal {eta_glob_nom*100:.1f}%",
                  annotation_font_color="#ffd200", annotation_position="right")
-    fg.add_hline(y=seuil_eta_glob*100, line_dash="dot", line_color="#e63946",
-                 annotation_text=f"Alerte {seuil_eta_glob*100:.0f}%",
+    fg.add_hline(y=seuil_eg_crit*100, line_dash="dot", line_color="#e63946",
+                 annotation_text=f"Écart significatif {seuil_eg_crit*100:.0f}%",
                  annotation_font_color="#e63946", annotation_position="right")
     fg.update_layout(template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
                      yaxis_title="η_global (%)", xaxis_title="",
@@ -711,12 +870,14 @@ with tab1:
         st.plotly_chart(f2, use_container_width=True)
 
     with cb:
+        seuil_cop_mod  = cop_nom * (1 - seuil_derive_moderee)
+        seuil_cop_crit = cop_nom * (1 - seuil_derive_critique)
         cop_col = []
         for v in df["COP"]:
-            if pd.isna(v) or v == 0: cop_col.append("#e63946")
-            elif v < seuil_cop:      cop_col.append("#e63946")
-            elif v < cop_nom:        cop_col.append("#ffd200")
-            else:                    cop_col.append("#2dc653")
+            if pd.isna(v) or v == 0:        cop_col.append("#555555")
+            elif v < seuil_cop_crit:         cop_col.append("#e63946")
+            elif v < seuil_cop_mod:          cop_col.append("#ffd200")
+            else:                            cop_col.append("#2dc653")
         f3 = go.Figure()
         f3.add_trace(go.Bar(x=df["mois"], y=df["COP"].fillna(0),
                             marker_color=cop_col, name="COP mesuré",
@@ -724,8 +885,8 @@ with tab1:
         f3.add_hline(y=cop_nom, line_dash="dash", line_color="#ffd200",
                      annotation_text=f"Nominal {cop_nom:.2f}",
                      annotation_font_color="#ffd200", annotation_position="right")
-        f3.add_hline(y=seuil_cop, line_dash="dot", line_color="#e63946",
-                     annotation_text=f"Seuil {seuil_cop:.2f}",
+        f3.add_hline(y=seuil_cop_crit, line_dash="dot", line_color="#e63946",
+                     annotation_text=f"Écart significatif {seuil_cop_crit:.2f}",
                      annotation_font_color="#e63946", annotation_position="right")
         for i, row in df.iterrows():
             if (pd.isna(row["COP"]) or row["COP"] == 0) and row["cause_cop"]:
@@ -850,49 +1011,625 @@ with tab2:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TAB 3 — ALERTES
+# TAB 3 — SUIVI DES DÉRIVES MENSUELLES
+# Les données étant saisies manuellement (non SCADA), les seuils temps-réel
+# n'ont pas de sens opérationnel. On analyse les dérives mois/mois vs nominal.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 3 — DÉRIVES MENSUELLES  (refonte complète)
 # ─────────────────────────────────────────────────────────────────────────────
 with tab3:
-    st.markdown('<div class="sec-hdr">Système d\'alertes intelligentes</div>', unsafe_allow_html=True)
 
-    df_al = detecter_alertes(df)
-    nb_r  = (df_al["Statut"] == "🔴 ALERTE").sum()
-    nb_y  = (df_al["Statut"] == "🟡 SURVEILLANCE").sum()
+    # ── Données de base ──────────────────────────────────────────────────────
+    df_derive = detecter_derives_mensuelles(df)
+    tendances = detecter_tendances(df)
 
-    if df_al.empty:
-        st.success("✅ Aucune alerte sur la période sélectionnée.")
-    else:
-        cc1, cc2, cc3 = st.columns(3)
-        cc1.error(f"🔴  {nb_r} alertes critiques")
-        cc2.warning(f"🟡  {nb_y} surveillances")
-        cc3.info(f"📋  {len(df_al)} événements total")
-        st.markdown("<br>", unsafe_allow_html=True)
-        for _, row in df_al.iterrows():
-            cls = "arow-red" if "ALERTE" in row["Statut"] else "arow-yel"
+    nb_conform = (df_derive["Statut"] == "✅ Conforme").sum()
+    nb_modere  = (df_derive["Statut"] == "⚠️ Écart modéré").sum()
+    nb_signif  = (df_derive["Statut"] == "❌ Écart significatif").sum()
+    nb_arret   = (df_derive["Statut"] == "⛔ Arrêt / N.D.").sum()
+    nb_total   = len(df_derive)
+    pct_sante  = round(nb_conform / nb_total * 100) if nb_total > 0 else 0
+
+    # Dernier mois disponible
+    dernier_mois = df["mois"].iloc[-1] if len(df) > 0 else "—"
+    df_last = df_derive[df_derive["Mois"] == dernier_mois]
+
+    # ── BANDEAU TITRE ────────────────────────────────────────────────────────
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,#0b1929 0%,#0d2137 100%);
+                border:1px solid #1b3352;border-radius:10px;
+                padding:16px 22px;margin-bottom:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+        <div>
+          <div style="font-size:11px;color:#4d7fa8;text-transform:uppercase;letter-spacing:1.5px;
+                      margin-bottom:4px;">Diagnostic opérationnel — Suivi des dérives</div>
+          <div style="font-size:20px;font-weight:700;color:#e0f0ff;">
+            Analyse mensuelle des KPI vs nominaux
+          </div>
+          <div style="font-size:12px;color:#4d7fa8;margin-top:4px;">
+            Données manuelles (relevés de comptage) · Non connecté SCADA ·
+            Période : mai 2024 – mars 2026 ({len(df)} mois)
+          </div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:11px;color:#4d7fa8;text-transform:uppercase;letter-spacing:1px;">
+            Indice de santé global
+          </div>
+          <div style="font-size:42px;font-weight:900;
+                      color:{'#2dc653' if pct_sante>=70 else ('#ffd200' if pct_sante>=50 else '#e63946')};">
+            {pct_sante}%
+          </div>
+          <div style="font-size:11px;color:#778da9;">
+            {nb_conform} / {nb_total} mesures conformes
+          </div>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # SECTION 1 — ÉTAT DU DERNIER MOIS (cartes KPI avec jauge circulaire)
+    # ════════════════════════════════════════════════════════════════════════
+    st.markdown(f'<div class="sec-hdr">🔍 État instantané — {dernier_mois}</div>',
+                unsafe_allow_html=True)
+
+    kpi_meta = {
+        "η_global": {"nom": eta_glob_nom, "col": "eta_glob", "label": "η Global",    "icon": "⚡", "unit": "%"},
+        "η_e":      {"nom": eta_e_nom,    "col": "eta_e",    "label": "η Électrique","icon": "🔌", "unit": "%"},
+        "η_th":     {"nom": eta_th_nom,   "col": "eta_th",   "label": "η Thermique", "icon": "🔥", "unit": "%"},
+        "η_frig":   {"nom": eta_frig_nom, "col": "eta_frig", "label": "η Frig.",     "icon": "❄️", "unit": "%"},
+        "COP":      {"nom": cop_nom,      "col": "COP",      "label": "COP Absorp.", "icon": "🌡️", "unit": ""},
+    }
+
+    cols_inst = st.columns(5)
+    for i, (kpi_id, meta) in enumerate(kpi_meta.items()):
+        row_last = df_last[df_last["KPI"] == kpi_id]
+        if row_last.empty:
+            statut_last = "—"
+            val_last_raw = 0.0
+            ecart_last = None
+        else:
+            statut_last = row_last.iloc[0]["Statut"]
+            val_str = row_last.iloc[0]["Valeur"]
+            ecart_str = row_last.iloc[0]["Écart/Nom"]
+            try:
+                val_last_raw = float(val_str.replace("%","").replace("ARRÊT","0"))
+                if meta["unit"] == "%":
+                    val_last_raw = val_last_raw / 100 if val_last_raw > 1 else val_last_raw
+            except Exception:
+                val_last_raw = 0.0
+            try:
+                ecart_last = float(ecart_str.replace("%","").replace("+","").replace("N/A","0")) / 100
+            except Exception:
+                ecart_last = None
+
+        # Couleur selon statut
+        if statut_last == "✅ Conforme":
+            border_col = "#2dc653"
+            bg_col     = "rgba(45,198,83,0.08)"
+            badge_txt  = "✅ OK"
+            badge_col  = "#2dc653"
+        elif statut_last == "⚠️ Écart modéré":
+            border_col = "#ffd200"
+            bg_col     = "rgba(255,210,0,0.08)"
+            badge_txt  = "⚠ MODÉRÉ"
+            badge_col  = "#ffd200"
+        elif statut_last == "❌ Écart significatif":
+            border_col = "#e63946"
+            bg_col     = "rgba(230,57,70,0.10)"
+            badge_txt  = "❌ CRITIQUE"
+            badge_col  = "#e63946"
+        else:
+            border_col = "#445566"
+            bg_col     = "rgba(30,40,60,0.4)"
+            badge_txt  = "— N/D"
+            badge_col  = "#556677"
+
+        # Valeur formatée
+        if meta["unit"] == "%":
+            val_disp = f"{val_last_raw*100:.1f}%" if val_last_raw > 0 else "—"
+            nom_disp = f"{meta['nom']*100:.1f}%"
+        else:
+            val_disp = f"{val_last_raw:.3f}" if val_last_raw > 0 else "—"
+            nom_disp = f"{meta['nom']:.3f}"
+
+        ecart_disp = (f"{'▲' if ecart_last>=0 else '▼'} {abs(ecart_last)*100:.1f}% / nominal"
+                      if ecart_last is not None else "")
+        ecart_col  = "#2dc653" if (ecart_last or 0) >= 0 else "#e63946"
+
+        with cols_inst[i]:
             st.markdown(f"""
-            <div class="{cls}">
-              <strong>{row['Mois']}</strong> &nbsp;|&nbsp; {row['Statut']}
-              &nbsp;|&nbsp; <strong>{row['KPI']}</strong> = {row['Valeur']}
-              &nbsp;(seuil : {row['Seuil']}, nominal : {row['Nominal']}, écart : {row['Écart nominal']})
-              <br><span style="color:#90c2e7;font-size:12px;">
-                &#128204; <em>Cause :</em> {row['Cause']}
-              </span><br>
-              <span style="color:#778da9;font-size:12px;">
-                &#128295; <em>Action :</em> {row['Action']}
+            <div style="background:{bg_col};border:1.5px solid {border_col};
+                        border-radius:10px;padding:14px 12px;text-align:center;min-height:160px;
+                        display:flex;flex-direction:column;justify-content:space-between;">
+              <div style="font-size:22px;margin-bottom:4px;">{meta['icon']}</div>
+              <div style="font-size:11px;color:#90c2e7;text-transform:uppercase;
+                          letter-spacing:1px;margin-bottom:6px;">{meta['label']}</div>
+              <div style="font-size:28px;font-weight:900;color:#e0f0ff;
+                          margin-bottom:2px;">{val_disp}</div>
+              <div style="font-size:11px;color:#556677;margin-bottom:6px;">
+                nominal : {nom_disp}
+              </div>
+              <div style="font-size:11px;color:{ecart_col};margin-bottom:8px;">
+                {ecart_disp}
+              </div>
+              <div style="background:{border_col};color:#000;font-size:10px;font-weight:700;
+                          border-radius:20px;padding:3px 8px;display:inline-block;">
+                {badge_txt}
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # SECTION 2 — RADAR DE SANTÉ + JAUGE DE SYNTHÈSE
+    # ════════════════════════════════════════════════════════════════════════
+    st.markdown('<div class="sec-hdr">📡 Profil de performance — Radar multi-KPI</div>',
+                unsafe_allow_html=True)
+
+    col_radar, col_gauge = st.columns([3, 2])
+
+    with col_radar:
+        # Radar : valeur normalisée vs nominal pour chaque KPI, sur le dernier mois
+        kpi_labels_rad = ["η Global", "η Électrique", "η Thermique", "η Frig.", "COP"]
+        kpi_cols_rad   = ["eta_glob", "eta_e", "eta_th", "eta_frig", "COP"]
+        kpi_noms_rad   = [eta_glob_nom, eta_e_nom, eta_th_nom, eta_frig_nom, cop_nom]
+
+        # Valeurs normalisées (% du nominal) — dernier mois et moyenne période
+        def _get_norm_vals(data_slice):
+            vals = []
+            for col_r, nom_r in zip(kpi_cols_rad, kpi_noms_rad):
+                if col_r in data_slice.columns:
+                    v = data_slice[col_r].mean()
+                    vals.append(round(v / nom_r * 100, 1) if (nom_r > 0 and pd.notna(v) and v > 0) else 0)
+                else:
+                    vals.append(0)
+            return vals
+
+        last_row = df[df["mois"] == dernier_mois] if dernier_mois in df["mois"].values else df.tail(1)
+        vals_last = _get_norm_vals(last_row)
+        vals_moy  = _get_norm_vals(df)
+
+        fig_radar = go.Figure()
+        fig_radar.add_trace(go.Scatterpolar(
+            r=vals_last + [vals_last[0]],
+            theta=kpi_labels_rad + [kpi_labels_rad[0]],
+            fill="toself",
+            name=f"Dernier mois ({dernier_mois})",
+            line=dict(color="#00b4d8", width=2),
+            fillcolor="rgba(0,180,216,0.15)",
+            marker=dict(size=7, color="#00b4d8"),
+        ))
+        fig_radar.add_trace(go.Scatterpolar(
+            r=vals_moy + [vals_moy[0]],
+            theta=kpi_labels_rad + [kpi_labels_rad[0]],
+            fill="toself",
+            name="Moyenne période",
+            line=dict(color="#9b72cf", width=1.5, dash="dot"),
+            fillcolor="rgba(155,114,207,0.08)",
+            marker=dict(size=5, color="#9b72cf"),
+        ))
+        # Cercle nominal (100%)
+        fig_radar.add_trace(go.Scatterpolar(
+            r=[100]*6,
+            theta=kpi_labels_rad + [kpi_labels_rad[0]],
+            mode="lines",
+            name="Nominal (100%)",
+            line=dict(color="#ffd200", width=1.5, dash="dash"),
+        ))
+        fig_radar.update_layout(
+            polar=dict(
+                bgcolor="#0b1929",
+                radialaxis=dict(
+                    visible=True, range=[0, 130],
+                    tickvals=[0, 25, 50, 75, 100, 125],
+                    ticktext=["0%", "25%", "50%", "75%", "nominal", ""],
+                    tickfont=dict(size=9, color="#4d7fa8"),
+                    gridcolor="#1b3352", linecolor="#1b3352",
+                ),
+                angularaxis=dict(
+                    tickfont=dict(size=12, color="#90c2e7"),
+                    gridcolor="#1b3352", linecolor="#1b3352",
+                ),
+            ),
+            paper_bgcolor="#070e1a",
+            template="plotly_dark",
+            height=340,
+            margin=dict(l=60, r=60, t=40, b=40),
+            legend=dict(
+                bgcolor="#0b1929", font_size=11,
+                orientation="h", y=-0.12, x=0.5, xanchor="center",
+            ),
+            showlegend=True,
+        )
+        st.plotly_chart(fig_radar, use_container_width=True)
+
+    with col_gauge:
+        # Jauge indicateur de santé global
+        st.markdown("""
+        <div style="font-size:12px;color:#4d7fa8;text-align:center;
+                    margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">
+          Score de santé global (période complète)
+        </div>""", unsafe_allow_html=True)
+
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=pct_sante,
+            delta={"reference": 70, "valueformat": ".0f",
+                   "increasing": {"color": "#2dc653"},
+                   "decreasing": {"color": "#e63946"}},
+            number={"suffix": "%", "font": {"size": 44, "color": "#e0f0ff"}},
+            gauge={
+                "axis": {"range": [0, 100], "tickwidth": 1,
+                         "tickcolor": "#4d7fa8", "tickfont": {"size": 10}},
+                "bar":  {"color": "#00b4d8", "thickness": 0.3},
+                "bgcolor": "#0b1929",
+                "borderwidth": 0,
+                "steps": [
+                    {"range": [0, 40],  "color": "rgba(230,57,70,0.25)"},
+                    {"range": [40, 70], "color": "rgba(255,210,0,0.15)"},
+                    {"range": [70, 100],"color": "rgba(45,198,83,0.15)"},
+                ],
+                "threshold": {
+                    "line": {"color": "#ffd200", "width": 3},
+                    "thickness": 0.75, "value": 70,
+                },
+            },
+            title={"text": "Conformité KPI × mois", "font": {"size": 12, "color": "#4d7fa8"}},
+        ))
+        fig_gauge.update_layout(
+            paper_bgcolor="#070e1a",
+            font_color="#e0f0ff",
+            height=280,
+            margin=dict(l=30, r=30, t=30, b=20),
+        )
+        st.plotly_chart(fig_gauge, use_container_width=True)
+
+        # Répartition des statuts en donuts
+        fig_donut = go.Figure(go.Pie(
+            labels=["✅ Conforme", "⚠ Modéré", "❌ Significatif", "⛔ Arrêt"],
+            values=[nb_conform, nb_modere, nb_signif, nb_arret],
+            hole=0.6,
+            marker_colors=["#2dc653", "#ffd200", "#e63946", "#445566"],
+            textfont_size=11,
+            hovertemplate="%{label}<br>%{value} mesures (%{percent})<extra></extra>",
+        ))
+        fig_donut.update_layout(
+            paper_bgcolor="#070e1a",
+            template="plotly_dark",
+            height=200,
+            margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=True,
+            legend=dict(font_size=10, bgcolor="#0b1929",
+                        orientation="h", y=-0.15, x=0.5, xanchor="center"),
+            annotations=[dict(text=f"<b>{nb_total}</b><br>mesures",
+                              x=0.5, y=0.5, font_size=12,
+                              font_color="#90c2e7", showarrow=False)],
+        )
+        st.plotly_chart(fig_donut, use_container_width=True)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # SECTION 3 — HEATMAP CHRONOLOGIQUE (compacte, design amélioré)
+    # ════════════════════════════════════════════════════════════════════════
+    st.markdown('<div class="sec-hdr">🗓️ Carte de conformité chronologique</div>',
+                unsafe_allow_html=True)
+
+    statut_num   = {"✅ Conforme": 1, "⚠️ Écart modéré": 0,
+                    "❌ Écart significatif": -1, "⛔ Arrêt / N.D.": -2}
+    statut_court = {"✅ Conforme": "✅", "⚠️ Écart modéré": "⚠",
+                    "❌ Écart significatif": "❌", "⛔ Arrêt / N.D.": "—"}
+
+    def _mois_sort_key(label):
+        MOIS_K = {
+            "jan":1,"fév":2,"mar":3,"avr":4,"mai":5,
+            "jun":6,"juin":6,"jul":7,"juil":7,
+            "aoû":8,"août":8,"sep":9,"sept":9,"oct":10,"nov":11,"déc":12
+        }
+        parts = label.strip().lower().split()
+        mm = next((v for k, v in MOIS_K.items() if parts[0].startswith(k)), 0)
+        yy = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        return yy * 100 + mm
+
+    df_pivot_raw = df_derive.pivot(index="KPI", columns="Mois", values="Statut")
+    cols_sorted  = sorted(df_pivot_raw.columns.tolist(), key=_mois_sort_key)
+    df_pivot_raw = df_pivot_raw[cols_sorted]
+
+    kpi_order = ["η_global", "η_e", "η_th", "η_frig", "COP"]
+    rows_sorted = [k for k in kpi_order if k in df_pivot_raw.index] + \
+                  [k for k in df_pivot_raw.index if k not in kpi_order]
+    df_pivot_raw = df_pivot_raw.loc[rows_sorted]
+
+    df_pivot_num  = df_pivot_raw.map(lambda s: statut_num.get(s, 0))
+    df_pivot_text = df_pivot_raw.map(lambda s: statut_court.get(s, "?"))
+
+    def _short_label(label):
+        parts = label.strip().split()
+        return f"{parts[0][:3]} {parts[1][-2:]}" if len(parts) >= 2 else label[:6]
+
+    x_labels = [_short_label(c) for c in cols_sorted]
+
+    # Hover enrichi avec valeurs réelles
+    hover_matrix = []
+    for kpi_row in rows_sorted:
+        row_hover = []
+        for col_m in cols_sorted:
+            cell_statut = df_pivot_raw.loc[kpi_row, col_m] if col_m in df_pivot_raw.columns else "—"
+            cell_val = df_derive[(df_derive["KPI"]==kpi_row) & (df_derive["Mois"]==col_m)]
+            if not cell_val.empty:
+                v = cell_val.iloc[0]["Valeur"]
+                e = cell_val.iloc[0]["Écart/Nom"]
+                row_hover.append(f"{cell_statut}<br>Val: {v} | Écart: {e}")
+            else:
+                row_hover.append(str(cell_statut))
+        hover_matrix.append(row_hover)
+
+    fhm = go.Figure(go.Heatmap(
+        z=df_pivot_num.values,
+        x=x_labels,
+        y=df_pivot_num.index.tolist(),
+        customdata=hover_matrix,
+        colorscale=[
+            [0.00, "#1a1a2e"],
+            [0.33, "#7b0a14"],
+            [0.66, "#7a6000"],
+            [1.00, "#155a2e"],
+        ],
+        zmin=-2, zmax=1,
+        text=df_pivot_text.values,
+        texttemplate="%{text}",
+        textfont={"size": 15},
+        showscale=False,
+        hovertemplate="<b>%{y}</b> — %{x}<br>%{customdata}<extra></extra>",
+    ))
+
+    h_hm = max(220, len(rows_sorted) * 58 + 90)
+    fhm.update_layout(
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        height=h_hm,
+        margin=dict(l=100, r=20, t=10, b=80),
+        xaxis=dict(
+            tickangle=-45, tickfont_size=10,
+            side="bottom",
+        ),
+        yaxis=dict(tickfont_size=13, autorange="reversed"),
+    )
+    st.plotly_chart(fhm, use_container_width=True)
+
+    st.markdown("""
+    <div style="display:flex;gap:20px;font-size:12px;margin-top:-8px;margin-bottom:16px;
+                flex-wrap:wrap;">
+      <span style="color:#2dc653;">■ ✅ Conforme (nominal ±{:.0f}%)</span>
+      <span style="color:#ffd200;">■ ⚠ Écart modéré</span>
+      <span style="color:#e63946;">■ ❌ Écart significatif (>{:.0f}%)</span>
+      <span style="color:#555;">■ — Arrêt / Données manquantes</span>
+    </div>""".format(seuil_derive_moderee*100, seuil_derive_critique*100),
+    unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # SECTION 4 — TUNNEL DE PERFORMANCE : évolution écart + zones colorées
+    # ════════════════════════════════════════════════════════════════════════
+    st.markdown('<div class="sec-hdr">📈 Tunnel de performance — Écart au nominal par KPI</div>',
+                unsafe_allow_html=True)
+
+    kpi_sel_ecart = st.multiselect(
+        "KPI à afficher",
+        options=["η_global", "η_e", "η_th", "η_frig", "COP"],
+        default=["η_global", "η_e", "COP"],
+        key="kpi_sel_tunnel"
+    )
+
+    kpi_colors = {
+        "η_global": "#0077b6", "η_e": "#00b4d8",
+        "η_th": "#f7971e", "η_frig": "#a0e878", "COP": "#9b72cf"
+    }
+
+    fig_tunnel = go.Figure()
+
+    # Zones de fond
+    x_range_paper = [0, 1]
+    for y0, y1, col_bg in [
+        (-1.0, -seuil_derive_critique, "rgba(230,57,70,0.07)"),
+        (-seuil_derive_critique, -seuil_derive_moderee, "rgba(255,210,0,0.06)"),
+        (-seuil_derive_moderee, seuil_derive_moderee, "rgba(45,198,83,0.05)"),
+        (seuil_derive_moderee, 0.5, "rgba(45,198,83,0.03)"),
+    ]:
+        fig_tunnel.add_shape(
+            type="rect",
+            xref="paper", yref="y",
+            x0=0, x1=1, y0=y0, y1=y1,
+            fillcolor=col_bg, line_width=0,
+        )
+
+    for kpi_name in kpi_sel_ecart:
+        col_data = df_derive[df_derive["KPI"] == kpi_name].copy()
+        if col_data.empty:
+            continue
+        ecarts = col_data["Écart/Nom"].replace("N/A", np.nan)
+        ecarts_num = pd.to_numeric(
+            ecarts.str.replace("%","").str.replace("+",""), errors="coerce"
+        ) / 100
+
+        fig_tunnel.add_trace(go.Scatter(
+            x=col_data["Mois"].tolist(),
+            y=ecarts_num.tolist(),
+            mode="lines+markers",
+            name=kpi_name,
+            line=dict(color=kpi_colors.get(kpi_name, "#ccc"), width=2.5),
+            marker=dict(size=7, symbol="circle",
+                        color=kpi_colors.get(kpi_name, "#ccc")),
+            hovertemplate=(f"<b>{kpi_name}</b><br>%{{x}}<br>"
+                           f"Écart : %{{y:.1%}}<extra></extra>"),
+        ))
+
+    # Lignes de seuil
+    for y_val, color, dash, label in [
+        (0,                      "#ffffff", "dash",  "Nominal"),
+        (-seuil_derive_moderee,  "#ffd200", "dot",   f"⚠ −{seuil_derive_moderee*100:.0f}%"),
+        (-seuil_derive_critique, "#e63946", "dot",   f"❌ −{seuil_derive_critique*100:.0f}%"),
+    ]:
+        fig_tunnel.add_shape(
+            type="line", xref="paper", yref="y",
+            x0=0, x1=1, y0=y_val, y1=y_val,
+            line=dict(color=color, dash=dash, width=1.2),
+        )
+        fig_tunnel.add_annotation(
+            x=1.01, xref="paper", y=y_val, yref="y",
+            text=label, showarrow=False,
+            font=dict(color=color, size=10), xanchor="left",
+        )
+
+    fig_tunnel.update_layout(
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis=dict(title="Écart au nominal", tickformat=".0%", zeroline=False),
+        height=360,
+        margin=dict(l=70, r=160, t=20, b=70),
+        legend=dict(bgcolor="#0b1929", font_size=12,
+                    orientation="h", y=-0.25, x=0, xanchor="left"),
+        xaxis=dict(tickangle=-45, tickfont_size=10),
+    )
+    st.plotly_chart(fig_tunnel, use_container_width=True)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # SECTION 5 — ALERTES DE TENDANCE + TABLEAU FILTRABLE
+    # ════════════════════════════════════════════════════════════════════════
+    col_tend, col_table = st.columns([1, 2])
+
+    with col_tend:
+        st.markdown('<div class="sec-hdr">📉 Tendances de dégradation</div>',
+                    unsafe_allow_html=True)
+        if tendances:
+            for t in tendances:
+                vals_str = " → ".join([f"{v:.3f}" for v in t["vals"]])
+                st.markdown(f"""
+                <div class="arow-yel" style="margin-bottom:10px;">
+                  <div style="font-size:13px;font-weight:700;color:#ffd200;margin-bottom:4px;">
+                    📉 {t['label']}
+                  </div>
+                  <div style="font-size:11px;color:#aaa;margin-bottom:4px;">
+                    {int(t['nb'])} mois consécutifs en baisse
+                  </div>
+                  <div style="font-family:'Share Tech Mono',monospace;font-size:11px;
+                               color:#ffd200;">{vals_str}</div>
+                  <div style="font-size:11px;color:#778da9;margin-top:4px;">
+                    🔧 Planifier une inspection si la tendance persiste.
+                  </div>
+                </div>""", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="background:rgba(45,198,83,0.08);border:1px solid #2dc653;
+                        border-radius:8px;padding:16px;text-align:center;">
+              <div style="font-size:24px;margin-bottom:8px;">✅</div>
+              <div style="color:#2dc653;font-size:13px;font-weight:600;">
+                Aucune tendance de dégradation continue
+              </div>
+              <div style="color:#4d7fa8;font-size:11px;margin-top:4px;">
+                sur {int(nb_mois_tendance)} mois consécutifs
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+        # Compteurs statuts (mini-cards verticales)
+        st.markdown("<br>", unsafe_allow_html=True)
+        for label, val, col_s in [
+            ("Conformes",       nb_conform, "#2dc653"),
+            ("Écarts modérés",  nb_modere,  "#ffd200"),
+            ("Écarts significatifs", nb_signif, "#e63946"),
+            ("Arrêts / N.D.",   nb_arret,   "#445566"),
+        ]:
+            pct_val = round(val / nb_total * 100) if nb_total > 0 else 0
+            st.markdown(f"""
+            <div style="display:flex;justify-content:space-between;align-items:center;
+                        background:#0b1929;border-left:3px solid {col_s};
+                        border-radius:4px;padding:8px 12px;margin-bottom:6px;">
+              <span style="font-size:12px;color:#90c2e7;">{label}</span>
+              <span style="font-size:15px;font-weight:700;color:{col_s};">{val}
+                <span style="font-size:10px;color:#445566;">({pct_val}%)</span>
               </span>
             </div>""", unsafe_allow_html=True)
 
-    if not df_al.empty:
-        st.markdown('<div class="sec-hdr">Timeline alertes</div>', unsafe_allow_html=True)
-        cnt = df_al.groupby("Mois").size().reset_index(name="Nb alertes")
-        fat = px.bar(cnt, x="Mois", y="Nb alertes", color="Nb alertes", text="Nb alertes",
-                     color_continuous_scale=[[0,"#ffd200"],[0.5,"#f7971e"],[1,"#e63946"]])
-        fat.update_traces(textposition="outside")
-        fat.update_layout(template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
-                          height=260, showlegend=False, margin=dict(l=40,r=20,t=20,b=40))
-        st.plotly_chart(fat, use_container_width=True)
-        st.markdown('<div class="sec-hdr">Tableau des alertes</div>', unsafe_allow_html=True)
-        st.dataframe(df_al, use_container_width=True, hide_index=True)
+    with col_table:
+        st.markdown('<div class="sec-hdr">🔎 Tableau des dérives — vue filtrée</div>',
+                    unsafe_allow_html=True)
+
+        f_col1, f_col2 = st.columns(2)
+        with f_col1:
+            kpi_filtre = st.multiselect(
+                "KPI", df_derive["KPI"].unique().tolist(),
+                default=df_derive["KPI"].unique().tolist(),
+                key="filtre_kpi_derive2"
+            )
+        with f_col2:
+            statut_filtre = st.multiselect(
+                "Statut",
+                ["✅ Conforme", "⚠️ Écart modéré", "❌ Écart significatif", "⛔ Arrêt / N.D."],
+                default=["⚠️ Écart modéré", "❌ Écart significatif", "⛔ Arrêt / N.D."],
+                key="filtre_statut_derive2"
+            )
+
+        df_derive_show = df_derive[
+            df_derive["KPI"].isin(kpi_filtre) &
+            df_derive["Statut"].isin(statut_filtre)
+        ][["Mois","KPI","Valeur","Nominal","Écart/Nom","Var. M/M-1","Statut","Action"]].copy()
+
+        if df_derive_show.empty:
+            st.markdown("""
+            <div style="background:rgba(45,198,83,0.08);border:1px solid #2dc653;
+                        border-radius:8px;padding:20px;text-align:center;margin-top:10px;">
+              <div style="font-size:20px;margin-bottom:6px;">✅</div>
+              <div style="color:#2dc653;font-size:13px;">
+                Aucune dérive selon les filtres sélectionnés.
+              </div>
+            </div>""", unsafe_allow_html=True)
+        else:
+            st.dataframe(df_derive_show, use_container_width=True, hide_index=True)
+            st.caption(f"{len(df_derive_show)} entrées affichées")
+
+    # ════════════════════════════════════════════════════════════════════════
+    # SECTION 6 — ACTIONS RECOMMANDÉES (style cards, non plus liste)
+    # ════════════════════════════════════════════════════════════════════════
+    kpis_degrad = df_derive[
+        df_derive["Statut"].isin(["❌ Écart significatif", "⚠️ Écart modéré"])
+    ]["KPI"].unique().tolist()
+
+    if kpis_degrad:
+        st.markdown('<div class="sec-hdr">🔧 Actions correctives recommandées</div>',
+                    unsafe_allow_html=True)
+
+        actions_vues = {}
+        for _, row in df_derive[df_derive["KPI"].isin(kpis_degrad)].iterrows():
+            key = row["KPI"]
+            if key not in actions_vues and row["Action"] != "—":
+                actions_vues[key] = row
+
+        action_cols = st.columns(min(len(actions_vues), 3))
+        for i, (kpi_k, row) in enumerate(actions_vues.items()):
+            is_crit = row["Statut"] == "❌ Écart significatif"
+            bg_col  = "rgba(230,57,70,0.08)" if is_crit else "rgba(255,210,0,0.06)"
+            brd_col = "#e63946" if is_crit else "#ffd200"
+            badge   = "CRITIQUE" if is_crit else "MODÉRÉ"
+            badge_c = "#e63946" if is_crit else "#ffd200"
+
+            with action_cols[i % 3]:
+                st.markdown(f"""
+                <div style="background:{bg_col};border:1px solid {brd_col};
+                            border-radius:8px;padding:14px 14px 12px;margin-bottom:10px;">
+                  <div style="display:flex;justify-content:space-between;
+                              align-items:center;margin-bottom:8px;">
+                    <span style="font-size:14px;font-weight:700;color:#e0f0ff;">{kpi_k}</span>
+                    <span style="background:{badge_c};color:#000;font-size:9px;
+                                 font-weight:700;border-radius:20px;
+                                 padding:2px 8px;">{badge}</span>
+                  </div>
+                  <div style="font-size:12px;color:#90c2e7;margin-bottom:8px;">
+                    {row['Libellé']}
+                  </div>
+                  <div style="font-size:11px;color:#778da9;line-height:1.5;">
+                    🔧 {row['Action']}
+                  </div>
+                </div>""", unsafe_allow_html=True)
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -982,6 +1719,115 @@ with tab4:
                       height=300, margin=dict(l=50,r=110,t=20,b=40),
                       legend=dict(bgcolor="#0b1929"))
     st.plotly_chart(fhr, use_container_width=True)
+
+    # ── SECTION CO₂ & TEP ─────────────────────────────────────────────────
+    st.markdown('<div class="sec-hdr">Bilan CO₂ & TEP — Impact environnemental</div>',
+                unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="font-size:12px;color:#4d7fa8;margin-bottom:14px;padding:8px 12px;
+                background:#0b1929;border-radius:6px;border:1px solid #162030;">
+      <strong>Méthode (coefficients ANME — Tableau 1 &amp; 2, Audit ADWYA 2025) :</strong><br>
+      Électricité : 0,283 TEP/MWh × 2,349 tCO₂/TEP (réseau STEG).<br>
+      Gaz naturel : 0,9 TEP/kNm³ × 2,349 tCO₂/TEP.<br>
+      Froid évité : kWh_froid / COP_GEG(3,1) = kWh_élec_STEG évités.<br>
+      Chaleur évitée : kWh_chaleur / (η_chaud(0,90) × PCI) = Nm³ GN évités.
+    </div>""", unsafe_allow_html=True)
+
+    co2_c1, co2_c2, co2_c3 = st.columns(3)
+    co2_c1.markdown(f"""<div class="kpi-card alert">
+      <div class="kpi-label">CO₂ émis (gaz consommé)</div>
+      <div class="kpi-value">{total_co2_gaz:.1f}<span class="kpi-unit"> tCO₂</span></div>
+      <div class="kpi-delta delta-neg">{total_tep_gaz:.1f} TEP consommées</div>
+    </div>""", unsafe_allow_html=True)
+    co2_c2.markdown(f"""<div class="kpi-card">
+      <div class="kpi-label">CO₂ évité (énergie récupérée)</div>
+      <div class="kpi-value" style="color:#2dc653;">{total_co2_evite:.1f}<span class="kpi-unit"> tCO₂</span></div>
+      <div class="kpi-delta delta-pos">{total_tep_evite:.1f} TEP évitées au réseau</div>
+    </div>""", unsafe_allow_html=True)
+    co2_cls = "" if total_co2_net >= 0 else "alert"
+    co2_c3.markdown(f"""<div class="kpi-card {co2_cls}">
+      <div class="kpi-label">Bilan net CO₂</div>
+      <div class="kpi-value" style="color:{'#2dc653' if total_co2_net>=0 else '#e63946'};">
+        {total_co2_net:+.1f}<span class="kpi-unit"> tCO₂</span></div>
+      <div class="kpi-delta {'delta-pos' if total_co2_net>=0 else 'delta-neg'}">
+        {'Évitement net positif ✅' if total_co2_net>=0 else 'Bilan défavorable ⚠️'}</div>
+    </div>""", unsafe_allow_html=True)
+
+    # Graphique CO₂ mensuel
+    fig_co2 = go.Figure()
+    fig_co2.add_trace(go.Bar(x=df["mois"], y=df["co2_gaz"],
+                             name="CO₂ émis (gaz)", marker_color="#e63946", opacity=0.85))
+    fig_co2.add_trace(go.Bar(x=df["mois"], y=df["co2_evite_elec"],
+                             name="CO₂ évité — élec", marker_color="#00b4d8", opacity=0.85))
+    fig_co2.add_trace(go.Bar(x=df["mois"], y=df["co2_evite_chaud"],
+                             name="CO₂ évité — chaleur", marker_color="#f7971e", opacity=0.85))
+    fig_co2.add_trace(go.Bar(x=df["mois"], y=df["co2_evite_froid"],
+                             name="CO₂ évité — froid", marker_color="#a0e878", opacity=0.85))
+    fig_co2.add_trace(go.Scatter(x=df["mois"], y=df["co2_net"],
+                                 mode="lines+markers", name="Bilan net",
+                                 line=dict(color="#ffd200", width=2.5), marker=dict(size=9)))
+    fig_co2.add_hline(y=0, line_color="#555", line_dash="dot")
+    fig_co2.update_layout(
+        barmode="group", title="Bilan CO₂ mensuel (tCO₂) — émissions vs évitements",
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="tCO₂/mois", height=340,
+        margin=dict(l=60, r=20, t=40, b=40),
+        legend=dict(bgcolor="#0b1929", font_size=12)
+    )
+    st.plotly_chart(fig_co2, use_container_width=True)
+
+    # TEP mensuel cumulé
+    tep_c1, tep_c2 = st.columns(2)
+    with tep_c1:
+        fig_tep = go.Figure()
+        fig_tep.add_trace(go.Bar(x=df["mois"], y=df["tep_gaz"],
+                                 name="TEP consommées", marker_color="#e63946", opacity=0.8))
+        fig_tep.add_trace(go.Bar(x=df["mois"], y=df["tep_evite_total"],
+                                 name="TEP évitées", marker_color="#2dc653", opacity=0.8))
+        fig_tep.add_trace(go.Scatter(x=df["mois"], y=df["tep_net"],
+                                     mode="lines+markers", name="TEP nettes",
+                                     line=dict(color="#ffd200", width=2), marker=dict(size=8)))
+        fig_tep.update_layout(
+            barmode="group", title="Bilan TEP mensuel",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="TEP", height=300,
+            margin=dict(l=60, r=20, t=40, b=40),
+            legend=dict(bgcolor="#0b1929", font_size=11)
+        )
+        st.plotly_chart(fig_tep, use_container_width=True)
+
+    with tep_c2:
+        # Décomposition du CO₂ évité par vecteur
+        fig_co2_pie = px.pie(
+            names=["Élec produite", "Chaleur évitée", "Froid évité"],
+            values=[df["co2_evite_elec"].sum(),
+                    df["co2_evite_chaud"].sum(),
+                    df["co2_evite_froid"].sum()],
+            color_discrete_sequence=["#00b4d8", "#f7971e", "#a0e878"],
+            hole=0.5, title="Décomposition du CO₂ évité par vecteur"
+        )
+        fig_co2_pie.update_traces(textposition="outside", textinfo="label+percent",
+                                   hovertemplate="<b>%{label}</b><br>%{value:.1f} tCO₂<extra></extra>")
+        fig_co2_pie.update_layout(template="plotly_dark", paper_bgcolor="#070e1a",
+                                   height=300, margin=dict(l=20, r=20, t=40, b=20),
+                                   showlegend=False)
+        st.plotly_chart(fig_co2_pie, use_container_width=True)
+
+    # Tableau CO₂ mensuel
+    st.markdown('<div class="sec-hdr" style="font-size:14px;">Tableau bilan CO₂ & TEP mensuel</div>',
+                unsafe_allow_html=True)
+    df_co2_tab = df[["mois", "co2_gaz", "co2_evite_elec", "co2_evite_chaud",
+                      "co2_evite_froid", "co2_evite_total", "co2_net",
+                      "tep_gaz", "tep_evite_total", "tep_net"]].copy()
+    df_co2_tab.columns = [
+        "Mois", "CO₂ émis (t)", "CO₂ évité Élec (t)", "CO₂ évité Chaleur (t)",
+        "CO₂ évité Froid (t)", "CO₂ évité total (t)", "Bilan CO₂ net (t)",
+        "TEP gaz", "TEP évitées", "TEP nettes"
+    ]
+    for c_ in df_co2_tab.columns[1:]:
+        df_co2_tab[c_] = df_co2_tab[c_].map(lambda x: f"{x:.2f}")
+    st.dataframe(df_co2_tab, use_container_width=True, hide_index=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2003,18 +2849,492 @@ with tab5:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TAB 6 — RAPPORT TECHNIQUE & EXPORT
+# TAB 6 — COMPARAISON ANNUELLE 2024 / 2025 / 2026
 # ─────────────────────────────────────────────────────────────────────────────
 with tab6:
 
-    tg  = perf_tag(eta_glob_moy, seuil_eta_glob, eta_glob_nom)
-    te  = perf_tag(eta_e_moy,    seuil_eta_e,    eta_e_nom)
-    tth = perf_tag(eta_th_moy,   seuil_eta_th,   eta_th_nom)
-    tc  = perf_tag(cop_moy if not np.isnan(cop_moy) else 0, seuil_cop, cop_nom)
+    st.markdown('<div class="sec-hdr">Comparaison annuelle — 2024 · 2025 · 2026</div>',
+                unsafe_allow_html=True)
 
-    df_al5   = detecter_alertes(df)
-    nb_al    = len(df_al5)
-    nb_ok    = nb_mois - df_al5["Mois"].nunique()
+    # ── Segmentation des données par année ───────────────────────────────────
+    ANNEES = {"2024": [], "2025": [], "2026": []}
+    for label in ["2024", "2025", "2026"]:
+        ANNEES[label] = df_raw[df_raw["mois"].str.contains(label)].copy()
+
+    ann_couleurs = {"2024": "#0077b6", "2025": "#f7971e", "2026": "#a0e878"}
+    ann_labels   = {
+        "2024": f"2024 ({len(ANNEES['2024'])} mois)",
+        "2025": f"2025 ({len(ANNEES['2025'])} mois)",
+        "2026": f"2026 ({len(ANNEES['2026'])} mois)",
+    }
+
+    # ── Sélection des années à comparer ──────────────────────────────────────
+    annees_choisies = st.multiselect(
+        "Années à comparer", ["2024","2025","2026"],
+        default=["2024","2025","2026"], key="comp_annees"
+    )
+    if not annees_choisies:
+        st.warning("Sélectionnez au moins une année.")
+        st.stop()
+
+    # ── Agrégats annuels ─────────────────────────────────────────────────────
+    def agreger_annee(dfann: pd.DataFrame) -> dict:
+        if dfann.empty:
+            return {}
+        pg = dfann["P_gaz"].sum()
+        safe = pg if pg > 0 else np.nan
+        cop_v = dfann["COP"].dropna()
+        cop_v = cop_v[cop_v > 0]
+        return {
+            "n_mois":       len(dfann),
+            "h_service":    dfann["h_service"].sum(),
+            "prod_nette":   dfann["prod_nette"].sum(),
+            "chaleur":      dfann["chaleur"].sum(),
+            "froid":        dfann["froid"].sum(),
+            "gaz_nm3":      dfann["gaz"].sum(),
+            "P_gaz":        pg,
+            "eta_e":        dfann["prod_nette"].sum() / safe if safe else 0,
+            "eta_th":       dfann["chaleur"].sum()    / safe if safe else 0,
+            "eta_frig":     dfann["froid"].sum()      / safe if safe else 0,
+            "eta_glob":    (dfann["prod_nette"].sum() + dfann["chaleur"].sum()
+                            + dfann["froid"].sum()) / safe if safe else 0,
+            "cop_moy":      float(cop_v.mean()) if len(cop_v) > 0 else np.nan,
+            "cout_gaz":     dfann["cout_gaz_dt"].sum(),
+            "val_elec":     dfann["val_elec_dt"].sum(),
+            "val_chaleur":  dfann["val_chaleur_dt"].sum(),
+            "val_froid":    dfann["val_froid_dt"].sum(),
+            "gain":         dfann["gain_global_dt"].sum(),
+            # CO₂ & TEP
+            "co2_net":      dfann["co2_net"].sum(),
+            "co2_evite":    dfann["co2_evite_total"].sum(),
+            "co2_emis":     dfann["co2_gaz"].sum(),
+            "tep_net":      dfann["tep_net"].sum(),
+            "score_moy":    dfann["score_perf"].mean(),
+        }
+
+    agreg = {a: agreger_annee(ANNEES[a]) for a in annees_choisies if not ANNEES[a].empty}
+
+    # ── KPI cards comparatifs ─────────────────────────────────────────────────
+    st.markdown('<div class="sec-hdr">KPI annuels comparés</div>', unsafe_allow_html=True)
+
+    kpis_comp = [
+        ("η Global",    "eta_glob",  eta_glob_nom, "%",   100),
+        ("η Élec",      "eta_e",     eta_e_nom,    "%",   100),
+        ("η Thermique", "eta_th",    eta_th_nom,   "%",   100),
+        ("COP",         "cop_moy",   cop_nom,      "",    1),
+        ("Gain net (DT)","gain",     None,         "DT",  1),
+        ("Gaz (MNm³)",  "gaz_nm3",  None,         "MNm³",1/1e6),
+    ]
+
+    cols_kpi_comp = st.columns(len(annees_choisies))
+    for i, ann in enumerate(annees_choisies):
+        ag = agreg.get(ann, {})
+        if not ag:
+            continue
+        with cols_kpi_comp[i]:
+            st.markdown(f"""
+            <div style="border-left:4px solid {ann_couleurs[ann]};
+                        padding-left:14px;margin-bottom:18px;">
+              <div style="font-size:20px;font-weight:700;
+                          color:{ann_couleurs[ann]};letter-spacing:2px;">
+                {ann} &nbsp;
+                <span style="font-size:13px;color:#4d7fa8;">
+                  ({ag['n_mois']} mois · {ag['h_service']:,.0f} h)
+                </span>
+              </div>
+            </div>""", unsafe_allow_html=True)
+
+            for nom_k, col_k, nom_val, unit_k, facteur in kpis_comp:
+                val = ag.get(col_k, np.nan)
+                if pd.isna(val):
+                    val_str = "N/A"
+                    delta_html = ""
+                elif unit_k == "%":
+                    val_str = f"{val*facteur:.1f}%"
+                    delta_html = (f'<span style="color:{"#2dc653" if val>=nom_val else "#e63946"}">'
+                                  f'{"▲" if val>=nom_val else "▼"} '
+                                  f'{abs(val-nom_val)*100:.1f}pp vs nominal</span>')
+                elif unit_k == "DT":
+                    val_str = f"{val*facteur:,.0f} DT"
+                    delta_html = ""
+                elif unit_k == "MNm³":
+                    val_str = f"{val*facteur:.3f} MNm³"
+                    delta_html = ""
+                else:
+                    val_str = f"{val*facteur:.3f}"
+                    delta_html = (f'<span style="color:{"#2dc653" if val>=nom_val else "#e63946"}">'
+                                  f'{"▲" if val>=nom_val else "▼"} '
+                                  f'{abs(val-nom_val):.3f} vs nominal</span>'
+                                  if nom_val else "")
+                st.markdown(f"""
+                <div style="display:flex;justify-content:space-between;
+                            padding:5px 0;border-bottom:1px solid #162030;">
+                  <span style="color:#4d7fa8;font-size:13px;">{nom_k}</span>
+                  <span style="color:#e8f4ff;font-family:'Share Tech Mono',monospace;">
+                    {val_str}</span>
+                </div>
+                <div style="text-align:right;font-size:11px;
+                            margin-bottom:3px;">{delta_html}</div>
+                """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Graphique 1 : Rendements annuels comparés ─────────────────────────────
+    st.markdown('<div class="sec-hdr">Rendements annuels comparés</div>', unsafe_allow_html=True)
+
+    gr1c, gr2c = st.columns(2)
+    with gr1c:
+        kpis_bar = ["η_e", "η_th", "η_frig", "η_global"]
+        kpis_col_map = {"η_e":"eta_e","η_th":"eta_th","η_frig":"eta_frig","η_global":"eta_glob"}
+        noms_ref     = {"η_e":eta_e_nom,"η_th":eta_th_nom,
+                        "η_frig":eta_frig_nom,"η_global":eta_glob_nom}
+        fig_rend = go.Figure()
+        for ann in annees_choisies:
+            ag = agreg.get(ann, {})
+            if not ag:
+                continue
+            fig_rend.add_trace(go.Bar(
+                name=ann_labels[ann],
+                x=kpis_bar,
+                y=[ag.get(kpis_col_map[k], 0)*100 for k in kpis_bar],
+                marker_color=ann_couleurs[ann],
+                opacity=0.85,
+                text=[f"{ag.get(kpis_col_map[k],0)*100:.1f}%" for k in kpis_bar],
+                textposition="outside",
+            ))
+        for kp in kpis_bar:
+            fig_rend.add_scatter(
+                x=[kp], y=[noms_ref[kp]*100],
+                mode="markers", marker=dict(symbol="line-ew",size=24,
+                color="#ffd200",line=dict(width=2,color="#ffd200")),
+                name=f"Nominal {kp}" if kp=="η_e" else None,
+                showlegend=(kp=="η_e"),
+            )
+        fig_rend.update_layout(
+            barmode="group", title="Rendements annuels vs nominal (%)",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="%", height=350,
+            margin=dict(l=50,r=20,t=40,b=40),
+            legend=dict(bgcolor="#0b1929", font_size=12),
+        )
+        st.plotly_chart(fig_rend, use_container_width=True)
+
+    with gr2c:
+        # COP annuel moyen comparé
+        fig_cop = go.Figure()
+        cop_vals = [agreg.get(a,{}).get("cop_moy", np.nan) for a in annees_choisies]
+        fig_cop.add_trace(go.Bar(
+            x=annees_choisies, y=cop_vals,
+            marker_color=[ann_couleurs[a] for a in annees_choisies],
+            text=[f"{v:.3f}" if not np.isnan(v) else "N/A" for v in cop_vals],
+            textposition="outside", opacity=0.85,
+        ))
+        fig_cop.add_hline(y=cop_nom, line_dash="dash", line_color="#ffd200",
+                          annotation_text=f"Nominal {cop_nom:.2f}",
+                          annotation_font_color="#ffd200", annotation_position="right")
+        fig_cop.update_layout(
+            title="COP moyen annuel (mois actifs)",
+            template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+            yaxis_title="COP", height=350,
+            margin=dict(l=50,r=100,t=40,b=40), showlegend=False,
+        )
+        st.plotly_chart(fig_cop, use_container_width=True)
+
+    # ── Graphique 2 : Évolution mensuelle superposée ──────────────────────────
+    st.markdown('<div class="sec-hdr">Évolution mensuelle superposée par année</div>',
+                unsafe_allow_html=True)
+
+    # Mapping label affiché → nom de colonne dans df_raw / ANNEES[ann]
+    KPI_COMP_OPTIONS = {
+        "η_global":         "eta_glob",
+        "η_e (élec)":       "eta_e",
+        "η_th (thermique)": "eta_th",
+        "η_frig (froid)":   "eta_frig",
+        "COP absorption":   "COP",
+        "Élec nette (kWh)": "prod_nette",
+        "Chaleur (kWh)":    "chaleur",
+        "Froid (kWh)":      "froid",
+        "Gaz consommé (Nm³)":"gaz",
+    }
+    KPI_EST_RENDEMENT = {"eta_glob","eta_e","eta_th","eta_frig"}
+    KPI_NOM_MAP = {
+        "eta_e":    eta_e_nom,    "eta_th":  eta_th_nom,
+        "eta_frig": eta_frig_nom, "eta_glob":eta_glob_nom,
+        "COP":      cop_nom,
+    }
+
+    kpi_comp_label = st.selectbox(
+        "KPI à superposer",
+        list(KPI_COMP_OPTIONS.keys()),
+        key="kpi_comp_sel"
+    )
+    kpi_comp_sel = KPI_COMP_OPTIONS[kpi_comp_label]
+
+    # Mapping mois → numéro d'ordre 1-12 pour axe X commun
+    MOIS_ORD = {
+        "jan":1,"fév":2,"mar":3,"avr":4,"mai":5,
+        "jun":6,"juin":6,"jul":7,"juil":7,
+        "aoû":8,"août":8,"sep":9,"sept":9,
+        "oct":10,"nov":11,"déc":12
+    }
+    MOIS_NOMS = {1:"Jan",2:"Fév",3:"Mar",4:"Avr",5:"Mai",6:"Jun",
+                 7:"Jul",8:"Aoû",9:"Sep",10:"Oct",11:"Nov",12:"Déc"}
+    MOIS_ORDRE_AFF = [MOIS_NOMS[i] for i in range(1,13)]  # ordre calendaire fixe
+
+    def mois_num(label):
+        low = label.strip().lower()[:4]
+        for k, v in MOIS_ORD.items():
+            if low.startswith(k):
+                return v
+        return 0
+
+    facteur_aff = 100 if kpi_comp_sel in KPI_EST_RENDEMENT else 1
+
+    fig_sup = go.Figure()
+    for ann in annees_choisies:
+        dfann = ANNEES[ann].copy()
+        if dfann.empty:
+            continue
+        dfann["mois_n"] = dfann["mois"].apply(mois_num)
+        dfann = dfann.sort_values("mois_n")
+        # Construire série complète sur 12 mois (None si absent)
+        y_full = []
+        x_full = []
+        for mn in range(1, 13):
+            row = dfann[dfann["mois_n"] == mn]
+            x_full.append(MOIS_NOMS[mn])
+            if row.empty:
+                y_full.append(None)
+            else:
+                val = row[kpi_comp_sel].values[0]
+                y_full.append(
+                    float(val) * facteur_aff if pd.notna(val) and val != 0 else None
+                )
+        fig_sup.add_trace(go.Scatter(
+            x=x_full, y=y_full,
+            mode="lines+markers",
+            name=ann_labels[ann],
+            line=dict(color=ann_couleurs[ann], width=2.5),
+            marker=dict(size=9),
+            connectgaps=False,   # NE PAS relier les None — gaps visibles
+            hovertemplate=f"<b>{ann}</b><br>%{{x}}<br>{kpi_comp_label} = %{{y:.3f}}<extra></extra>",
+        ))
+
+    # Ligne nominale
+    if kpi_comp_sel in KPI_NOM_MAP:
+        nv = KPI_NOM_MAP[kpi_comp_sel]
+        nv_aff = nv * 100 if kpi_comp_sel in KPI_EST_RENDEMENT else nv
+        fig_sup.add_hline(
+            y=nv_aff,
+            line_dash="dash", line_color="#ffd200",
+            annotation_text=f"Nominal {nv_aff:.2f}",
+            annotation_font_color="#ffd200",
+            annotation_position="top right",
+        )
+
+    ytitle = "%" if kpi_comp_sel in KPI_EST_RENDEMENT else (
+             "COP" if kpi_comp_sel == "COP" else
+             "Nm³" if kpi_comp_sel == "gaz" else "kWh")
+
+    fig_sup.update_layout(
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title=ytitle, height=360,
+        xaxis=dict(
+            categoryorder="array",
+            categoryarray=MOIS_ORDRE_AFF,   # force ordre Jan→Déc
+            tickfont_size=12,
+            title="Mois (axe commun toutes années)",
+        ),
+        margin=dict(l=60, r=30, t=30, b=50),
+        legend=dict(bgcolor="#0b1929", font_size=13,
+                    orientation="h", y=1.08, x=0),
+    )
+    st.plotly_chart(fig_sup, use_container_width=True)
+
+    # ── Graphique 3 : Bilan énergétique annuel comparé ───────────────────────
+    st.markdown('<div class="sec-hdr">Bilan énergétique annuel (MWh)</div>',
+                unsafe_allow_html=True)
+
+    fig_bilan = go.Figure()
+    flux_labels = ["Élec produite","Chaleur récupérée","Froid récupéré","Gaz consommé (PCI)"]
+    flux_cols   = ["prod_nette","chaleur","froid","P_gaz"]
+    flux_colors = ["#00b4d8","#f7971e","#a0e878","#e63946"]
+
+    for fi, (fl, fc, fcol) in enumerate(zip(flux_labels, flux_cols, flux_colors)):
+        fig_bilan.add_trace(go.Bar(
+            name=fl,
+            x=annees_choisies,
+            y=[agreg.get(a,{}).get(fc, 0)/1000 for a in annees_choisies],
+            marker_color=fcol, opacity=0.85,
+            text=[f"{agreg.get(a,{}).get(fc,0)/1000:.0f}" for a in annees_choisies],
+            textposition="outside",
+        ))
+    fig_bilan.update_layout(
+        barmode="group", template="plotly_dark",
+        paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="MWh", height=340,
+        margin=dict(l=50,r=20,t=20,b=40),
+        legend=dict(bgcolor="#0b1929", font_size=12),
+    )
+    st.plotly_chart(fig_bilan, use_container_width=True)
+
+    # ── Graphique 4 : Bilan financier annuel comparé ─────────────────────────
+    st.markdown('<div class="sec-hdr">Bilan financier annuel (DT)</div>',
+                unsafe_allow_html=True)
+
+    fig_fin = go.Figure()
+    for ann in annees_choisies:
+        ag = agreg.get(ann, {})
+        if not ag:
+            continue
+        fig_fin.add_trace(go.Bar(
+            name=f"Coût gaz {ann}",
+            x=[ann], y=[-ag.get("cout_gaz",0)],
+            marker_color="#e63946", opacity=0.85,
+            showlegend=(ann == annees_choisies[0]),
+            legendgroup="cout",
+        ))
+        fig_fin.add_trace(go.Bar(
+            name=f"Valeur élec {ann}",
+            x=[ann], y=[ag.get("val_elec",0)],
+            marker_color="#00b4d8", opacity=0.85,
+            showlegend=(ann == annees_choisies[0]),
+            legendgroup="elec",
+        ))
+        fig_fin.add_trace(go.Bar(
+            name=f"Valeur ch+fr {ann}",
+            x=[ann], y=[ag.get("val_chaleur",0)+ag.get("val_froid",0)],
+            marker_color="#f7971e", opacity=0.85,
+            showlegend=(ann == annees_choisies[0]),
+            legendgroup="chfr",
+        ))
+        fig_fin.add_trace(go.Scatter(
+            name=f"Gain net {ann}",
+            x=[ann], y=[ag.get("gain",0)],
+            mode="markers", marker=dict(size=14, color="#2dc653",
+                symbol="diamond"),
+            showlegend=(ann == annees_choisies[0]),
+            legendgroup="gain",
+        ))
+    fig_fin.add_hline(y=0, line_color="#555", line_dash="dot")
+    fig_fin.update_layout(
+        barmode="group", template="plotly_dark",
+        paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="DT", height=340,
+        margin=dict(l=60,r=20,t=20,b=40),
+        legend=dict(bgcolor="#0b1929", font_size=12),
+    )
+    st.plotly_chart(fig_fin, use_container_width=True)
+
+    # ── Tableau récapitulatif de synthèse ────────────────────────────────────
+    st.markdown('<div class="sec-hdr">Tableau récapitulatif de synthèse</div>',
+                unsafe_allow_html=True)
+
+    rows_synth = []
+    for ann in annees_choisies:
+        ag = agreg.get(ann, {})
+        if not ag:
+            continue
+        rows_synth.append({
+            "Année":            ann,
+            "Mois couverts":    ag["n_mois"],
+            "H service (h)":    f"{ag['h_service']:,.0f}",
+            "Élec nette (MWh)": f"{ag['prod_nette']/1000:.1f}",
+            "Chaleur (MWh)":    f"{ag['chaleur']/1000:.1f}",
+            "Froid (MWh)":      f"{ag['froid']/1000:.1f}",
+            "Gaz (MNm³)":       f"{ag['gaz_nm3']/1e6:.3f}",
+            "η_e":              f"{ag['eta_e']:.1%}",
+            "η_th":             f"{ag['eta_th']:.1%}",
+            "η_frig":           f"{ag['eta_frig']:.1%}",
+            "η_global":         f"{ag['eta_glob']:.1%}",
+            "COP moy.":         f"{ag['cop_moy']:.3f}" if not np.isnan(ag.get('cop_moy',np.nan)) else "N/A",
+            "Score /100":       f"{ag.get('score_moy',0):.1f}",
+            "Gain net (DT)":    f"{ag['gain']:,.0f}",
+            "CO₂ net (t)":      f"{ag.get('co2_net',0):.1f}",
+            "TEP net":          f"{ag.get('tep_net',0):.1f}",
+        })
+    # Ligne nominale de référence
+    rows_synth.append({
+        "Année":            "⭐ Nominal",
+        "Mois couverts":    "—",
+        "H service (h)":    "—",
+        "Élec nette (MWh)": "—",
+        "Chaleur (MWh)":    "—",
+        "Froid (MWh)":      "—",
+        "Gaz (MNm³)":       "—",
+        "η_e":              f"{eta_e_nom:.1%}",
+        "η_th":             f"{eta_th_nom:.1%}",
+        "η_frig":           f"{eta_frig_nom:.1%}",
+        "η_global":         f"{eta_glob_nom:.1%}",
+        "COP moy.":         f"{cop_nom:.3f}",
+        "Score /100":       "100.0",
+        "Gain net (DT)":    "—",
+        "CO₂ net (t)":      "—",
+        "TEP net":          "—",
+    })
+    st.dataframe(pd.DataFrame(rows_synth), use_container_width=True, hide_index=True)
+
+    # ── Comparaison CO₂ par année ─────────────────────────────────────────────
+    st.markdown('<div class="sec-hdr">Bilan CO₂ comparé par année</div>',
+                unsafe_allow_html=True)
+    fig_co2_ann = go.Figure()
+    for ann in annees_choisies:
+        ag = agreg.get(ann, {})
+        if not ag:
+            continue
+        fig_co2_ann.add_trace(go.Bar(
+            name=f"CO₂ émis {ann}", x=[ann],
+            y=[ag.get("co2_emis", 0)],
+            marker_color="#e63946", opacity=0.85,
+            showlegend=(ann == annees_choisies[0]), legendgroup="emis",
+        ))
+        fig_co2_ann.add_trace(go.Bar(
+            name=f"CO₂ évité {ann}", x=[ann],
+            y=[ag.get("co2_evite", 0)],
+            marker_color="#2dc653", opacity=0.85,
+            showlegend=(ann == annees_choisies[0]), legendgroup="evite",
+        ))
+        fig_co2_ann.add_trace(go.Scatter(
+            name=f"Bilan net {ann}", x=[ann],
+            y=[ag.get("co2_net", 0)],
+            mode="markers", marker=dict(size=14, color="#ffd200", symbol="diamond"),
+            showlegend=(ann == annees_choisies[0]), legendgroup="net",
+        ))
+    fig_co2_ann.add_hline(y=0, line_color="#555", line_dash="dot")
+    fig_co2_ann.update_layout(
+        barmode="group", template="plotly_dark",
+        paper_bgcolor="#070e1a", plot_bgcolor="#0b1929",
+        yaxis_title="tCO₂", height=300,
+        margin=dict(l=60, r=20, t=20, b=40),
+        legend=dict(bgcolor="#0b1929", font_size=12),
+    )
+    st.plotly_chart(fig_co2_ann, use_container_width=True)
+
+    st.markdown("""
+    <div style="font-size:12px;color:#4d7fa8;padding:10px 14px;
+                background:#0b1929;border-radius:6px;border:1px solid #162030;
+                margin-top:10px;">
+      <strong>Note :</strong> 2024 couvre mai–décembre (7 mois, démarrage trigénération).
+      2025 couvre 12 mois complets. 2026 couvre janvier–mars (3 mois).
+      Les η annuels sont calculés sur les flux cumulés (pas moyenne des η mensuels).
+    </div>""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+with tab7:
+
+    seuil_eg_crit_r = eta_glob_nom * (1 - seuil_derive_critique)
+    seuil_ee_crit_r = eta_e_nom    * (1 - seuil_derive_critique)
+    seuil_eth_crit_r= eta_th_nom   * (1 - seuil_derive_critique)
+    seuil_cop_crit_r= cop_nom      * (1 - seuil_derive_critique)
+    tg  = perf_tag(eta_glob_moy, seuil_eg_crit_r,  eta_glob_nom)
+    te  = perf_tag(eta_e_moy,    seuil_ee_crit_r,  eta_e_nom)
+    tth = perf_tag(eta_th_moy,   seuil_eth_crit_r, eta_th_nom)
+    tc  = perf_tag(cop_moy if not np.isnan(cop_moy) else 0, seuil_cop_crit_r, cop_nom)
+
+    df_derive_r  = detecter_derives_mensuelles(df)
+    nb_al        = (df_derive_r["Statut"].isin(["❌ Écart significatif","⛔ Arrêt / N.D."])).sum()
+    nb_ok        = (df_derive_r["Statut"] == "✅ Conforme").sum()
     jan_flag = any(df["mois"].str.strip().str.lower().str.startswith("jan"))
 
     jan_rows = df[df["mois"].str.strip().str.lower().str.startswith("jan")]
@@ -2028,10 +3348,20 @@ with tab6:
     st.markdown(f"""
     <div class="rbox">
       <p>
-        <strong>Centrale :</strong> Trigénération ADWYA &mdash; Moteur CAT/CG 170-12,
+        <strong>Centrale :</strong> Trigénération ADWYA &mdash; Moteur CAT CG170-12,
         P_élec = 1 200 kW &middot; Récupération thermique = 1 270 kW &middot;
         Absorption THERMAX TAC L5 E1 = 802 kW_frig<br>
         <strong>Période :</strong> {periode_t} ({nb_mois} mois analysés)
+      </p>
+      <h4>Score de performance global</h4>
+      <p>
+        Score composite (pondéré η_e 30% · η_th 25% · η_frig 20% · COP 25%) :
+        <strong style="color:{'#2dc653' if score_perf_moy>=80 else '#ffd200' if score_perf_moy>=60 else '#e63946'};">
+          {score_perf_moy:.1f} / 100
+        </strong>
+        {'<span class="tag-ok">BON</span>' if score_perf_moy>=80
+         else '<span class="tag-warn">PARTIEL</span>' if score_perf_moy>=60
+         else '<span class="tag-alert">DÉGRADÉ</span>'}
       </p>
       <h4>Performance énergétique globale</h4>
       <p>
@@ -2055,6 +3385,23 @@ with tab6:
         Énergie utile totale : <strong>{(total_elec+total_chaleur+total_froid)/1e6:.3f} GWh</strong><br>
         Gaz consommé : <strong>{total_gaz_nm3:,.0f} Nm³</strong> ({total_pgaz/1e6:.3f} GWh_PCI)
       </p>
+      <h4>Bilan environnemental (CO₂ &amp; TEP)</h4>
+      <p>
+        CO₂ émis (gaz consommé) : <strong>{total_co2_gaz:.1f} tCO₂</strong>
+        ({total_tep_gaz:.1f} TEP)<br>
+        CO₂ évité (énergie récupérée substituée) : <strong style="color:#2dc653;">{total_co2_evite:.1f} tCO₂</strong>
+        ({total_tep_evite:.1f} TEP)<br>
+        <strong>Bilan net :
+          <span style="color:{'#2dc653' if total_co2_net>=0 else '#e63946'};">
+            {total_co2_net:+.1f} tCO₂ &mdash; {total_tep_net:+.1f} TEP
+          </span>
+        </strong>
+        {'<span class="tag-ok">ÉVITEMENT NET POSITIF</span>' if total_co2_net>=0
+         else '<span class="tag-alert">BILAN DÉFAVORABLE</span>'}<br>
+        <span style="font-size:12px;color:#4d7fa8;">
+          Coefficients ANME : 0,283 TEP/MWh (élec STEG) · 0,9 TEP/kNm³ (GN) · 2,349 tCO₂/TEP
+        </span>
+      </p>
       <h4>Mois remarquables</h4>
       <p>
         Meilleur mois (η_global) : <strong>{best_m}</strong>
@@ -2072,9 +3419,9 @@ with tab6:
         <strong>Gain global net : {total_gain:+,.0f} DT</strong>
         {'<span class="tag-ok">POSITIF</span>' if total_gain>=0 else '<span class="tag-alert">NEGATIF</span>'}
       </p>
-      <h4>Alertes</h4>
+      <h4>Alertes dérives</h4>
       <p>
-        {nb_al} événements détectés ({nb_ok} mois sans alerte sur {nb_mois}).
+        {nb_al} événements de dérive détectés ({nb_ok} mois conformes sur {nb_mois}).
         {'<span class="tag-alert">Interventions requises.</span>' if nb_al>0
          else '<span class="tag-ok">Aucune alerte.</span>'}
       </p>
@@ -2983,13 +4330,19 @@ with tab6:
     df_exp = df[["mois","h_service","gaz","prod_nette","chaleur","froid","COP",
                  "eta_e","eta_th","eta_frig","eta_glob",
                  "cout_gaz_dt","val_elec_dt","val_chaleur_dt",
-                 "val_froid_dt","gain_global_dt","cause_cop"]].copy()
+                 "val_froid_dt","gain_global_dt",
+                 "tep_gaz","tep_evite_total","tep_net",
+                 "co2_gaz","co2_evite_total","co2_net",
+                 "score_perf","cause_cop"]].copy()
     df_exp.columns = [
         "Mois","H service (h)","Gaz (Nm³)","Élec nette (kWh)",
         "Chaleur (kWh)","Froid (kWh)","COP",
         "η_e","η_th","η_frig","η_global",
         "Coût gaz (DT)","Valeur élec (DT)","Valeur chaleur (DT)",
-        "Valeur froid (DT)","Gain global (DT)","Remarque"
+        "Valeur froid (DT)","Gain global (DT)",
+        "TEP gaz","TEP évitées","TEP nettes",
+        "CO₂ émis (t)","CO₂ évité (t)","CO₂ net (t)",
+        "Score performance /100","Remarque"
     ]
 
     # Feuille Énergie par Zone
@@ -3058,8 +4411,10 @@ with tab6:
                 "VEV pompes": EG_ZONES["vev_pompes"][z],
             } for z in ZONES])
             df_eg_export.to_excel(w, sheet_name="Eau Glacée par Zone", index=False)
-            if not df_al5.empty:
-                df_al5.to_excel(w, sheet_name="Alertes", index=False)
+            if not df_derive_r.empty:
+                df_derive_r[["Mois","KPI","Valeur","Nominal","Écart/Nom",
+                              "Var. M/M-1","Statut","Action"]].to_excel(
+                    w, sheet_name="Dérives Mensuelles", index=False)
             eco_sheet = df[["mois","cout_gaz_dt","val_elec_dt","val_chaleur_dt",
                             "val_froid_dt","gain_global_dt"]].copy()
             eco_sheet.columns = ["Mois","Coût gaz (DT)","Valeur élec (DT)",
