@@ -942,44 +942,108 @@ with tab2:
 
     vg  = total_pgaz
     ve  = total_elec
-    vth = total_chaleur
-    vfr = total_froid
-    vlr = vg * taux_pertes
-    vls = max(0, vg - ve - vth - vfr - vlr)
+    vth = total_chaleur          # chaleur récupérée TOTALE mesurée : somme des 4 circuits
+                                  # (EC Zone Gamma TT14, EC Zone Alpha TT10, ECS Zone Alpha
+                                  # TT08, et récupération machine à absorption TT03)
+    vfr = total_froid            # froid livré par la machine à absorption
+    vlr = vg * taux_pertes       # pertes réseau (fuites, distribution gaz)
+
+    # vth inclut DÉJÀ la chaleur envoyée à l'absorption (circuit TT03) : il ne faut
+    # donc pas l'ajouter à vth, mais l'en extraire. Chaleur consommée par le groupe
+    # frigorifique à absorption pour produire le froid mesuré : Q_abs = Froid / COP.
+    q_abs           = vfr / cop_moy if (cop_moy and cop_moy > 0) else vfr
+    q_abs           = min(q_abs, vth)                     # garde-fou (données mensuelles bruitées)
+    pertes_abs      = max(0, q_abs - vfr)                 # rejet tour de refroidissement
+    chaleur_directe = max(0, vth - q_abs)                 # TT14 + TT10 + TT08 (process)
+
+    vls = max(0, vg - ve - vth - vlr)         # pertes moteur/système (échappement, radiation)
+
+    # ── Sankey : valeurs en MWh (affichage lisible) ────────────────────────
+    MWH = 1000.0
+    def _mwh(x):
+        return x / MWH
+
+    node_labels_raw = ["Gaz Naturel (PCI)", "Moteur à Gaz",
+                        "Électricité nette", "Chaleur récupérée",
+                        "Chaleur valorisée (process)", "Chaleur vers absorption",
+                        "Froid (absorption)", "Pertes absorption",
+                        "Pertes réseau", "Pertes système (moteur)"]
+
+    # total traversant chaque nœud (pour l'afficher dans le libellé)
+    node_totals = [vg, vg, ve, vth, chaleur_directe, q_abs, vfr, pertes_abs, vlr, vls]
+    node_labels = [
+        f"{lbl}<br><b>{_mwh(val):,.0f} MWh</b> ({val/vg*100:.1f}%)".replace(",", " ")
+        for lbl, val in zip(node_labels_raw, node_totals)
+    ]
+
+    node_colors = ["#0077b6", "#023e8a", "#00b4d8", "#f7971e",
+                   "#ffb703", "#fb8500", "#a0e878", "#cc2936",
+                   "#e63946", "#6c757d"]
+
+    # positions fixes en 4 colonnes bien séparées → plus aucun chevauchement
+    node_x = [0.02, 0.26, 0.55, 0.55, 0.80, 0.80, 0.99, 0.99, 0.55, 0.55]
+    node_y = [0.35, 0.35, 0.10, 0.55, 0.42, 0.72, 0.65, 0.85, 0.90, 0.99]
+
+    # Moteur → Pertes système (moteur) était absent : le bilan gaz = élec + chaleur
+    # + pertes réseau + pertes système est maintenant complet et équilibré.
+    link_source = [0, 1, 1, 1, 1, 3, 3, 5, 5]
+    link_target = [1, 2, 3, 8, 9, 4, 5, 6, 7]
+    link_value  = [vg, ve, vth, vlr, vls, chaleur_directe, q_abs, vfr, pertes_abs]
+    link_colors = ["rgba(0,119,182,0.45)", "rgba(0,180,216,0.45)",
+                   "rgba(247,151,30,0.45)", "rgba(230,57,70,0.30)",
+                   "rgba(108,117,125,0.30)", "rgba(255,183,3,0.45)",
+                   "rgba(251,133,0,0.45)", "rgba(160,232,120,0.45)",
+                   "rgba(204,41,54,0.35)"]
+    link_labels = [f"{_mwh(v):,.0f} MWh".replace(",", " ") for v in link_value]
 
     fsk = go.Figure(go.Sankey(
-        arrangement="snap",
+        arrangement="fixed",
+        textfont=dict(color="#e6edf3", size=13, family="Arial"),
         node=dict(
-            pad=24, thickness=22,
-            line=dict(color="#1b3352", width=1),
-            label=["Gaz Naturel (PCI)","Moteur à Gaz",
-                   "Électricité nette","Chaleur récupérée",
-                   "Froid (absorption)","Pertes réseau","Pertes système"],
-            color=["#0077b6","#023e8a","#00b4d8","#f7971e",
-                   "#a0e878","#e63946","#cc2936"]
+            pad=30, thickness=18,
+            line=dict(color="#0b1929", width=1.5),
+            label=node_labels,
+            color=node_colors,
+            x=node_x, y=node_y,
+            hovertemplate="%{label}<extra></extra>"
         ),
         link=dict(
-            source=[0,1,1,1,1,1],
-            target=[1,2,3,4,5,6],
-            value=[vg,ve,vth,vfr,vlr,vls],
-            color=["rgba(0,119,182,0.35)","rgba(0,180,216,0.35)",
-                   "rgba(247,151,30,0.35)","rgba(160,232,120,0.35)",
-                   "rgba(230,57,70,0.2)","rgba(204,41,54,0.15)"]
+            source=link_source, target=link_target, value=link_value,
+            color=link_colors, label=link_labels,
+            hovertemplate="<b>%{source.label}</b> → <b>%{target.label}</b>"
+                          "<br>%{label}<extra></extra>"
         )
     ))
-    fsk.update_layout(template="plotly_dark", paper_bgcolor="#070e1a",
-                      height=430, margin=dict(l=20,r=20,t=20,b=20))
+    fsk.update_layout(
+        template="plotly_dark", paper_bgcolor="#070e1a", plot_bgcolor="#070e1a",
+        height=560, margin=dict(l=10, r=10, t=30, b=10),
+        font=dict(size=13),
+        title=dict(text=f"Bilan énergétique global — {_mwh(vg):,.0f} MWh de gaz (PCI) sur la période"
+                   .replace(",", " "),
+                   font=dict(size=14, color="#8fb4d9"), x=0.01)
+    )
     st.plotly_chart(fsk, use_container_width=True)
+    st.caption("La chaleur récupérée totale regroupe les 4 circuits mesurés (EC Zone "
+               "Gamma, EC Zone Alpha, ECS Zone Alpha, récupération machine à absorption). "
+               "Le froid n'est pas un flux indépendant du moteur : la part de cette "
+               "chaleur envoyée à l'absorption (COP moyen = " f"{cop_moy:.3f}"
+               ") s'y convertit avec des pertes (rejet à la tour de refroidissement) ; "
+               "le reste est valorisé directement sur les zones process. Les pertes "
+               "moteur/système (échappement, rayonnement) sont désormais représentées "
+               "explicitement pour boucler le bilan sur le gaz PCI total.")
 
     st.markdown('<div class="sec-hdr">Tableau bilan par flux</div>', unsafe_allow_html=True)
+    lignes  = ["Gaz naturel (P_gaz PCI)", "▸ Électricité nette",
+               "▸ Chaleur récupérée (totale, 4 circuits)", "    ▸ dont valorisée directe (process)",
+               "    ▸ dont envoyée vers absorption (TT03)", "        ▸ Froid livré (absorption)",
+               "        ▸ Pertes absorption (tour de refroidissement)",
+               "▸ Pertes réseau", "▸ Pertes moteur / système"]
+    valeurs = [vg, ve, vth, chaleur_directe, q_abs, vfr, pertes_abs, vlr, vls]
     bilan = pd.DataFrame({
-        "Flux": ["Gaz naturel (P_gaz PCI)", "▸ Électricité nette",
-                 "▸ Chaleur récupérée", "▸ Froid (absorption)",
-                 "▸ Pertes réseau", "▸ Pertes système"],
-        "Énergie (kWh)": [round(x) for x in [vg,ve,vth,vfr,vlr,vls]],
-        "Énergie (MWh)": [f"{x/1000:.1f}" for x in [vg,ve,vth,vfr,vlr,vls]],
-        "% du gaz PCI":  [f"{x/vg*100:.1f}%" if vg>0 else "—"
-                          for x in [vg,ve,vth,vfr,vlr,vls]],
+        "Flux": lignes,
+        "Énergie (kWh)": [round(x) for x in valeurs],
+        "Énergie (MWh)": [f"{x/1000:.1f}" for x in valeurs],
+        "% du gaz PCI":  [f"{x/vg*100:.1f}%" if vg>0 else "—" for x in valeurs],
     })
     st.dataframe(bilan, use_container_width=True, hide_index=True)
 
